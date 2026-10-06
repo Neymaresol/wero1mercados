@@ -292,7 +292,8 @@ def list_offers():
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT o.id, o.product_id, o.title, o.price_brl, o.commission_brl, o.active,\n                       p.id AS partner_id, p.name AS partner_name, p.domain
+                SELECT o.id, o.product_id, o.title, o.price_brl, o.commission_brl, o.active,
+                       p.id AS partner_id, p.name AS partner_name, p.domain
                 FROM offers o JOIN partners p ON p.id=o.partner_id
                 ORDER BY o.id DESC
             """)
