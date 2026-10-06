@@ -1,6 +1,4 @@
 import os
-import socket
-import hashlib
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -13,7 +11,7 @@ from decimal import Decimal
 import secrets
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.6.8-BR"
+VERSION = "1.6.9-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -27,22 +25,6 @@ def db():
         raise RuntimeError("DATABASE_URL nao configurada")
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
-
-def trace_info(conn=None):
-    """Safe runtime trace: no URL, host, user, password, or token is exposed."""
-    instance_id = socket.gethostname()
-    own_conn = conn is None
-    connection = conn or db()
-    try:
-        with connection.cursor() as cur:
-            cur.execute("SELECT current_database() AS database, current_schema() AS schema")
-            row = cur.fetchone()
-        fingerprint_source = f'{row["database"]}:{row["schema"]}'
-        database_fingerprint = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()[:12]
-        return {"instance_id": instance_id, "database_fingerprint": database_fingerprint}
-    finally:
-        if own_conn:
-            connection.close()
 
 
 def init_db():
@@ -245,7 +227,6 @@ def health():
         "storage_persistent": database_ok,
         "database_ok": database_ok,
         "time": now_iso(),
-        **trace_info(),
     }
 
 
@@ -275,53 +256,6 @@ def list_categories():
     return {"market": "BR", "categories": rows, **trace_info()}
 
 
-
-
-@app.get("/api/diagnostics/category-integrity")
-def category_integrity_diagnostic():
-    """Temporary read-only integrity check; exposes no credentials or connection metadata."""
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, slug, name, active,
-                       length(slug) AS slug_length,
-                       octet_length(slug) AS slug_octets,
-                       encode(convert_to(slug, 'UTF8'), 'hex') AS slug_utf8_hex
-                  FROM categories
-                 WHERE id IN (1, 4)
-                    OR slug IN ('eletrodomesticos', 'eletronicos-celulares')
-                 ORDER BY id
-            """)
-            rows = cur.fetchall()
-            cur.execute("""
-                SELECT EXISTS (
-                    SELECT 1 FROM pg_constraint
-                     WHERE conrelid='categories'::regclass
-                       AND contype='u'
-                       AND pg_get_constraintdef(oid) ILIKE '%slug%'
-                ) AS slug_unique_constraint
-            """)
-            constraint_state = cur.fetchone()
-            cur.execute("""
-                SELECT EXISTS (
-                    SELECT 1 FROM pg_indexes
-                     WHERE schemaname=current_schema()
-                       AND tablename='categories'
-                       AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
-                       AND indexdef ILIKE '%slug%'
-                ) AS slug_unique_index
-            """)
-            index_state = cur.fetchone()
-    return {
-        "service": SERVICE,
-        "version": VERSION,
-        "categories": rows,
-        "slug_unique_constraint": constraint_state["slug_unique_constraint"],
-        "slug_unique_index": index_state["slug_unique_index"],
-        "read_only": True,
-        "secrets_exposed": False,
-        **trace_info(),
-    }
 
 
 @app.get("/api/products")
