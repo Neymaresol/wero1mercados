@@ -1,4 +1,6 @@
 import os
+import socket
+import hashlib
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -11,7 +13,7 @@ from decimal import Decimal
 import secrets
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.6.7-BR"
+VERSION = "1.6.8-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -24,6 +26,23 @@ def db():
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL nao configurada")
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+
+
+def trace_info(conn=None):
+    """Safe runtime trace: no URL, host, user, password, or token is exposed."""
+    instance_id = socket.gethostname()
+    own_conn = conn is None
+    connection = conn or db()
+    try:
+        with connection.cursor() as cur:
+            cur.execute("SELECT current_database() AS database, current_schema() AS schema")
+            row = cur.fetchone()
+        fingerprint_source = f'{row["database"]}:{row["schema"]}'
+        database_fingerprint = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()[:12]
+        return {"instance_id": instance_id, "database_fingerprint": database_fingerprint}
+    finally:
+        if own_conn:
+            connection.close()
 
 
 def init_db():
@@ -226,6 +245,7 @@ def health():
         "storage_persistent": database_ok,
         "database_ok": database_ok,
         "time": now_iso(),
+        **trace_info(),
     }
 
 
@@ -252,7 +272,7 @@ def list_categories():
                 ORDER BY name
             """)
             rows = cur.fetchall()
-    return {"market": "BR", "categories": rows}
+    return {"market": "BR", "categories": rows, **trace_info()}
 
 
 
@@ -300,6 +320,7 @@ def category_integrity_diagnostic():
         "slug_unique_index": index_state["slug_unique_index"],
         "read_only": True,
         "secrets_exposed": False,
+        **trace_info(),
     }
 
 
