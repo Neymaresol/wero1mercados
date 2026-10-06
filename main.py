@@ -11,7 +11,7 @@ from decimal import Decimal
 import secrets
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.6.1-BR"
+VERSION = "1.6.2-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -89,6 +89,23 @@ def init_db():
                 UNIQUE(product_id, partner_id, authorized_url)
             )
             """)
+            # Repair legacy category state before seeding canonical slugs.
+            # Some older databases stored "Eletrônicos e Celulares" under the
+            # "eletrodomesticos" slug, colliding with the real appliance category.
+            cur.execute("""
+                UPDATE categories
+                   SET slug='eletronicos-celulares',
+                       name='Eletrônicos e Celulares',
+                       active=TRUE
+                 WHERE slug='eletrodomesticos'
+                   AND name='Eletrônicos e Celulares'
+                   AND NOT EXISTS (
+                       SELECT 1 FROM categories c2
+                        WHERE c2.slug='eletronicos-celulares'
+                          AND c2.id<>categories.id
+                   )
+            """)
+
             cur.executemany("""
                 INSERT INTO categories(slug, name, active)
                 VALUES(%s, %s, TRUE)
