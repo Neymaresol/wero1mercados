@@ -11,7 +11,7 @@ from decimal import Decimal
 import secrets
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.6.3-BR"
+VERSION = "1.6.4-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -193,6 +193,9 @@ def init_db():
             )
             """)
 
+        # psycopg connection context closes the connection but an explicit
+        # commit here makes startup schema/data migrations unambiguous.
+        conn.commit()
 
 @app.on_event("startup")
 def startup():
