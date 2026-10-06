@@ -7,7 +7,7 @@ from psycopg.rows import dict_row
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.2.0-BR"
+VERSION = "1.3.0-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
@@ -41,6 +41,70 @@ def init_db():
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
             """)
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS categories (
+                id BIGSERIAL PRIMARY KEY,
+                slug TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """)
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS products (
+                id BIGSERIAL PRIMARY KEY,
+                category_id BIGINT REFERENCES categories(id),
+                sku TEXT UNIQUE,
+                title TEXT NOT NULL,
+                brand TEXT,
+                description TEXT,
+                market TEXT NOT NULL DEFAULT 'BR',
+                currency TEXT NOT NULL DEFAULT 'BRL',
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                source TEXT NOT NULL DEFAULT 'authorized_partner',
+                last_validated_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """)
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS product_offers (
+                id BIGSERIAL PRIMARY KEY,
+                product_id BIGINT NOT NULL REFERENCES products(id),
+                partner_id BIGINT NOT NULL REFERENCES partners(id),
+                authorized_url TEXT NOT NULL,
+                price_brl NUMERIC(14,2),
+                commission_brl NUMERIC(14,2),
+                available BOOLEAN NOT NULL DEFAULT TRUE,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                source_updated_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE(product_id, partner_id, authorized_url)
+            )
+            """)
+            cur.executemany("""
+                INSERT INTO categories(slug, name, active)
+                VALUES(%s, %s, TRUE)
+                ON CONFLICT(slug) DO UPDATE SET name=EXCLUDED.name, active=TRUE
+            """, [
+                ("eletronicos-celulares", "Eletronicos e Celulares"),
+                ("informatica", "Informatica"),
+                ("casa-cozinha", "Casa e Cozinha"),
+                ("eletrodomesticos", "Eletrodomesticos"),
+                ("beleza-cuidados-pessoais", "Beleza e Cuidados Pessoais"),
+                ("moda-acessorios", "Moda e Acessorios"),
+                ("ferramentas", "Ferramentas"),
+                ("automotivo", "Automotivo"),
+                ("esportes", "Esportes"),
+                ("pet", "Pet"),
+                ("cursos-produtos-digitais", "Cursos e Produtos Digitais"),
+                ("servicos", "Servicos"),
+            ])
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_products_category_active ON products(category_id, active)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_products_market_active ON products(market, active)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_product_offers_product_active ON product_offers(product_id, active, available)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_product_offers_partner_active ON product_offers(partner_id, active, available)")
             cur.execute("""
             CREATE TABLE IF NOT EXISTS clicks (
                 id BIGSERIAL PRIMARY KEY,
@@ -106,6 +170,47 @@ def root():
         "currency": "BRL",
         "message": "wero1mercados Brasil",
     }
+
+
+@app.get("/api/categories")
+def list_categories():
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, slug, name, active
+                FROM categories
+                WHERE active=TRUE
+                ORDER BY name
+            """)
+            rows = cur.fetchall()
+    return {"market": "BR", "categories": rows}
+
+
+@app.get("/api/products")
+def list_products(
+    category: str | None = Query(default=None, max_length=80),
+    limit: int = Query(default=100, ge=1, le=500),
+):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT pr.id, pr.sku, pr.title, pr.brand, pr.description,
+                       pr.market, pr.currency, pr.source, pr.last_validated_at,
+                       c.slug AS category_slug, c.name AS category_name,
+                       COUNT(po.id) FILTER (WHERE po.active=TRUE AND po.available=TRUE) AS active_offers,
+                       MIN(po.price_brl) FILTER (WHERE po.active=TRUE AND po.available=TRUE) AS best_price_brl
+                FROM products pr
+                LEFT JOIN categories c ON c.id=pr.category_id
+                LEFT JOIN product_offers po ON po.product_id=pr.id
+                WHERE pr.active=TRUE
+                  AND pr.market='BR'
+                  AND (%s IS NULL OR c.slug=%s)
+                GROUP BY pr.id, c.slug, c.name
+                ORDER BY pr.updated_at DESC, pr.id DESC
+                LIMIT %s
+            """, (category, category, limit))
+            rows = cur.fetchall()
+    return {"market": "BR", "currency": "BRL", "products": rows}
 
 
 @app.get("/api/offers")
