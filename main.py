@@ -5,9 +5,12 @@ from urllib.parse import urlparse
 import psycopg
 from psycopg.rows import dict_row
 from fastapi import FastAPI, HTTPException, Query, Header
+from pydantic import BaseModel, Field
+from decimal import Decimal
+import secrets
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.4.1-BR"
+VERSION = "1.5.0-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -220,11 +223,11 @@ def list_products(
                 SELECT pr.id, pr.sku, pr.title, pr.brand, pr.description,
                        pr.market, pr.currency, pr.source, pr.last_validated_at,
                        c.slug AS category_slug, c.name AS category_name,
-                       COUNT(po.id) FILTER (WHERE po.active=TRUE AND po.available=TRUE) AS active_offers,
-                       MIN(po.price_brl) FILTER (WHERE po.active=TRUE AND po.available=TRUE) AS best_price_brl
+                       COUNT(po.id) FILTER (WHERE po.active=TRUE) AS active_offers,
+                       MIN(po.price_brl) FILTER (WHERE po.active=TRUE) AS best_price_brl
                 FROM products pr
                 LEFT JOIN categories c ON c.id=pr.category_id
-                LEFT JOIN product_offers po ON po.product_id=pr.id
+                LEFT JOIN offers po ON po.product_id=pr.id
                 WHERE pr.active=TRUE
                   AND pr.market='BR'
                   AND (%s::text IS NULL OR c.slug=%s)
@@ -239,8 +242,45 @@ def list_products(
 def require_admin(authorization: str | None):
     if not WERO_ADMIN_TOKEN:
         raise HTTPException(status_code=503, detail="Admin token nao configurado")
-    if authorization != f"Bearer {WERO_ADMIN_TOKEN}":
+    if not secrets.compare_digest(authorization or "", f"Bearer {WERO_ADMIN_TOKEN}"):
         raise HTTPException(status_code=401, detail="Nao autorizado")
+
+
+class ProductIn(BaseModel):
+    sku: str = Field(min_length=1, max_length=120)
+    title: str = Field(min_length=1, max_length=300)
+    category_slug: str = Field(min_length=1, max_length=80)
+    brand: str | None = Field(default=None, max_length=160)
+    description: str | None = Field(default=None, max_length=4000)
+    source: str = Field(default="authorized_partner", min_length=1, max_length=120)
+
+
+class OfferIn(BaseModel):
+    partner_name: str = Field(min_length=1, max_length=200)
+    partner_domain: str = Field(min_length=1, max_length=255)
+    title: str = Field(min_length=1, max_length=300)
+    authorized_url: str = Field(min_length=1, max_length=2000)
+    sku: str = Field(min_length=1, max_length=120)
+    price_brl: Decimal | None = Field(default=None, ge=0)
+    commission_brl: Decimal | None = Field(default=None, ge=0)
+
+
+@app.post("/api/commercial/products")
+def upsert_commercial_product(payload: ProductIn, authorization: str | None = Header(default=None)):
+    require_admin(authorization)
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM categories WHERE slug=%s AND active=TRUE", (payload.category_slug.strip().lower(),))
+            category = cur.fetchone()
+            if not category:
+                raise HTTPException(status_code=400, detail="Categoria ativa nao encontrada")
+            cur.execute("""INSERT INTO products(category_id,sku,title,brand,description,market,currency,active,source,last_validated_at,updated_at)
+                VALUES(%s,%s,%s,%s,%s,'BR','BRL',TRUE,%s,NOW(),NOW())
+                ON CONFLICT(sku) DO UPDATE SET category_id=EXCLUDED.category_id,title=EXCLUDED.title,brand=EXCLUDED.brand,
+                description=EXCLUDED.description,active=TRUE,source=EXCLUDED.source,last_validated_at=NOW(),updated_at=NOW()
+                RETURNING id""", (category["id"], payload.sku.strip(), payload.title.strip(), payload.brand, payload.description, payload.source))
+            product_id = cur.fetchone()["id"]
+    return {"status":"registered","product_id":product_id,"sku":payload.sku.strip(),"market":"BR","currency":"BRL"}
 
 
 def validate_authorized_url(url: str, domain: str):
@@ -254,15 +294,13 @@ def validate_authorized_url(url: str, domain: str):
 
 
 @app.post("/api/commercial/offers")
-def register_commercial_offer(payload: dict, authorization: str | None = Header(default=None)):
+def register_commercial_offer(payload: OfferIn, authorization: str | None = Header(default=None)):
     require_admin(authorization)
-    partner_name = str(payload.get("partner_name") or "").strip()
-    partner_domain = str(payload.get("partner_domain") or "").strip().lower()
-    title = str(payload.get("title") or "").strip()
-    authorized_url = str(payload.get("authorized_url") or "").strip()
-    sku = str(payload.get("sku") or "").strip()
-    if not all([partner_name, partner_domain, title, authorized_url, sku]):
-        raise HTTPException(status_code=400, detail="partner_name, partner_domain, title, authorized_url e sku sao obrigatorios")
+    partner_name = payload.partner_name.strip()
+    partner_domain = payload.partner_domain.strip().lower()
+    title = payload.title.strip()
+    authorized_url = payload.authorized_url.strip()
+    sku = payload.sku.strip()
     validate_authorized_url(authorized_url, partner_domain)
     with db() as conn:
         with conn.cursor() as cur:
@@ -282,7 +320,7 @@ def register_commercial_offer(payload: dict, authorization: str | None = Header(
                 VALUES(%s,%s,%s,%s,%s,%s,TRUE,'authorized_partner',NOW())
                 RETURNING id
             """, (partner_id, product["id"], title, authorized_url,
-                  payload.get("price_brl"), payload.get("commission_brl")))
+                  payload.price_brl, payload.commission_brl))
             offer_id = cur.fetchone()["id"]
     return {"status": "registered", "offer_id": offer_id, "financial_rule": "Valores comerciais nao contam como venda ate conversao confirmada pela fonte parceira."}
 
