@@ -4,12 +4,13 @@ from urllib.parse import urlparse
 
 import psycopg
 from psycopg.rows import dict_row
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Header
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.3.1-BR"
+VERSION = "1.4.0-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
+WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
 
 app = FastAPI(title=SERVICE, version=VERSION)
 
@@ -112,6 +113,21 @@ def init_db():
             cur.execute("CREATE INDEX IF NOT EXISTS idx_products_market_active ON products(market, active)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_product_offers_product_active ON product_offers(product_id, active, available)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_product_offers_partner_active ON product_offers(partner_id, active, available)")
+            cur.execute("""
+            ALTER TABLE offers ADD COLUMN IF NOT EXISTS product_id BIGINT REFERENCES products(id)
+            """)
+            cur.execute("""
+            ALTER TABLE offers ADD COLUMN IF NOT EXISTS price_brl NUMERIC(14,2)
+            """)
+            cur.execute("""
+            ALTER TABLE offers ADD COLUMN IF NOT EXISTS commission_brl NUMERIC(14,2)
+            """)
+            cur.execute("""
+            ALTER TABLE offers ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'authorized_partner'
+            """)
+            cur.execute("""
+            ALTER TABLE offers ADD COLUMN IF NOT EXISTS source_updated_at TIMESTAMPTZ
+            """)
             cur.execute("""
             CREATE TABLE IF NOT EXISTS clicks (
                 id BIGSERIAL PRIMARY KEY,
@@ -220,12 +236,63 @@ def list_products(
     return {"market": "BR", "currency": "BRL", "products": rows}
 
 
+def require_admin(authorization: str | None):
+    if not WERO_ADMIN_TOKEN:
+        raise HTTPException(status_code=503, detail="Admin token nao configurado")
+    if authorization != f"Bearer {WERO_ADMIN_TOKEN}":
+        raise HTTPException(status_code=401, detail="Nao autorizado")
+
+
+def validate_authorized_url(url: str, domain: str):
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise HTTPException(status_code=400, detail="Destino deve usar HTTPS")
+    host = (parsed.hostname or "").lower()
+    expected = domain.strip().lower()
+    if not expected or (host != expected and not host.endswith("." + expected)):
+        raise HTTPException(status_code=400, detail="Destino nao autorizado")
+
+
+@app.post("/api/commercial/offers")
+def register_commercial_offer(payload: dict, authorization: str | None = Header(default=None)):
+    require_admin(authorization)
+    partner_name = str(payload.get("partner_name") or "").strip()
+    partner_domain = str(payload.get("partner_domain") or "").strip().lower()
+    title = str(payload.get("title") or "").strip()
+    authorized_url = str(payload.get("authorized_url") or "").strip()
+    sku = str(payload.get("sku") or "").strip()
+    if not all([partner_name, partner_domain, title, authorized_url, sku]):
+        raise HTTPException(status_code=400, detail="partner_name, partner_domain, title, authorized_url e sku sao obrigatorios")
+    validate_authorized_url(authorized_url, partner_domain)
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM products WHERE sku=%s AND active=TRUE", (sku,))
+            product = cur.fetchone()
+            if not product:
+                raise HTTPException(status_code=404, detail="Produto ativo nao encontrado")
+            cur.execute("""
+                INSERT INTO partners(name, domain, active) VALUES(%s,%s,TRUE)
+                ON CONFLICT(domain) DO UPDATE SET name=EXCLUDED.name, active=TRUE
+                RETURNING id
+            """, (partner_name, partner_domain))
+            partner_id = cur.fetchone()["id"]
+            cur.execute("""
+                INSERT INTO offers(partner_id, product_id, title, authorized_url, price_brl,
+                                   commission_brl, active, source, source_updated_at)
+                VALUES(%s,%s,%s,%s,%s,%s,TRUE,'authorized_partner',NOW())
+                RETURNING id
+            """, (partner_id, product["id"], title, authorized_url,
+                  payload.get("price_brl"), payload.get("commission_brl")))
+            offer_id = cur.fetchone()["id"]
+    return {"status": "registered", "offer_id": offer_id, "financial_rule": "Valores comerciais nao contam como venda ate conversao confirmada pela fonte parceira."}
+
+
 @app.get("/api/offers")
 def list_offers():
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT o.id, o.title, o.active,
+                SELECT o.id, o.product_id, o.title, o.price_brl, o.commission_brl, o.active,
                        p.id AS partner_id, p.name AS partner_name, p.domain
                 FROM offers o JOIN partners p ON p.id=o.partner_id
                 ORDER BY o.id DESC
@@ -252,13 +319,7 @@ def go_offer(
             if not row or not row["active"] or not row["partner_active"]:
                 raise HTTPException(status_code=404, detail="Oferta indisponivel")
 
-            parsed = urlparse(row["authorized_url"])
-            if parsed.scheme != "https":
-                raise HTTPException(status_code=400, detail="Destino deve usar HTTPS")
-            host = (parsed.hostname or "").lower()
-            domain = row["domain"].strip().lower()
-            if not domain or (host != domain and not host.endswith("." + domain)):
-                raise HTTPException(status_code=400, detail="Destino nao autorizado")
+            validate_authorized_url(row["authorized_url"], row["domain"])
 
             cur.execute(
                 """INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at)

@@ -6,3 +6,5 @@ services:
     envVars:
       - key: WERO_MODE
         value: production
+      - key: WERO_ADMIN_TOKEN
+        sync: false
