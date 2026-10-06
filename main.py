@@ -12,7 +12,7 @@ import secrets
 import html
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.7.0-BR"
+VERSION = "1.8.0-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -452,6 +452,61 @@ def confirm_offer_click(
             )
             target = row["authorized_url"]
     return RedirectResponse(target, status_code=303)
+
+
+class ProviderConversionIn(BaseModel):
+    external_id: str = Field(min_length=1, max_length=200)
+    offer_id: int = Field(gt=0)
+    status: str = Field(min_length=1, max_length=40)
+    sale_amount_brl: Decimal | None = Field(default=None, ge=0)
+    commission_brl: Decimal | None = Field(default=None, ge=0)
+    confirmed_at: datetime | None = None
+
+
+@app.post("/api/commercial/conversions/provider")
+def ingest_provider_conversion(
+    payload: ProviderConversionIn,
+    _admin: None = Depends(require_admin),
+):
+    """Ingest only data already confirmed/reported by an authorized partner source."""
+    external_id = payload.external_id.strip()
+    status = payload.status.strip().lower()
+    allowed = {"pending", "confirmed", "reversed", "cancelled"}
+    if status not in allowed:
+        raise HTTPException(status_code=400, detail="Status de conversao invalido")
+    if status == "confirmed" and payload.confirmed_at is None:
+        raise HTTPException(status_code=400, detail="Conversao confirmada exige confirmed_at")
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT o.id
+                FROM offers o JOIN partners p ON p.id=o.partner_id
+                WHERE o.id=%s AND p.active=TRUE
+            """, (payload.offer_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Oferta/parceiro nao encontrado")
+            cur.execute("""
+                INSERT INTO conversions(external_id,offer_id,status,sale_amount_brl,commission_brl,confirmed_at)
+                VALUES(%s,%s,%s,%s,%s,%s)
+                ON CONFLICT(external_id) DO UPDATE SET
+                    offer_id=EXCLUDED.offer_id,
+                    status=EXCLUDED.status,
+                    sale_amount_brl=EXCLUDED.sale_amount_brl,
+                    commission_brl=EXCLUDED.commission_brl,
+                    confirmed_at=EXCLUDED.confirmed_at
+                RETURNING id
+            """, (
+                external_id, payload.offer_id, status, payload.sale_amount_brl,
+                payload.commission_brl, payload.confirmed_at,
+            ))
+            conversion_id = cur.fetchone()["id"]
+    return {
+        "status": "accepted",
+        "conversion_id": conversion_id,
+        "external_id": external_id,
+        "provider_status": status,
+        "financial_rule": "Somente dados recebidos de fonte parceira autorizada devem usar este endpoint.",
+    }
 
 
 @app.get("/api/commercial")
