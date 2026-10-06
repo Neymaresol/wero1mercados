@@ -1,31 +1,32 @@
 # wero1mercados
 
-Robô PAI do ecossistema PARADIGMA dedicado ao mercado brasileiro.
+Robô do ecossistema PARADIGMA dedicado a vendas digitais de produtos físicos no mercado brasileiro.
 
 ## Status
 
-🟡 Camada comercial em validação — v1.4.0-BR
+🟡 v1.6.0-BR em validação para GO comercial de varejo físico.
 
-## Objetivo
+## Escopo oficial
 
-Operar ofertas e links de afiliados autorizados no Brasil, com rastreabilidade de cliques, vendas e comissões confirmadas sem inventar resultados financeiros.
-
-## Princípios
-
+- produtos físicos vendidos por varejistas, marketplaces e parceiros autorizados
 - Brasil / pt-BR / BRL
-- parceiros e links autorizados
-- vendas e comissões somente após confirmação da fonte
-- separação total do WERO1 Operário
-- integração futura ao PARADIGMA como robô PAI
-- implantação por testes, Double Check, health check e canary
+- categorias como eletrônicos, celulares, informática, casa, cozinha, eletrodomésticos, beleza, moda, ferramentas, automotivo, esportes e pet
+- não replica o catálogo de cursos/e-books do wero1 operário
+- links de destino precisam ser HTTPS e pertencer ao domínio autorizado do parceiro
+- nenhuma parceria, preço, comissão ou venda é inventada
 
-## Camada comercial v1.4.0-BR
+## Fluxo comercial
 
-- cadastro de ofertas comerciais protegido por Bearer admin token
-- oferta vinculada a produto e parceiro autorizado
-- URL HTTPS validada contra o domínio do parceiro
-- clique rastreado pelo endpoint /go/{offer_id}
-- preço e comissão da oferta são metadados comerciais; somente conversões confirmadas entram nos totais financeiros
-- nenhuma oferta real é criada automaticamente sem dados autorizados da fonte parceira
+Parceiro autorizado -> produto -> oferta -> /go/{offer_id} -> clique rastreado -> loja parceira -> conversão confirmada pelo parceiro -> dashboard.
+
+## Controles
+
+- cadastro de produtos e ofertas protegido por Bearer admin token
+- produto idempotente por SKU
+- oferta idempotente por produto + parceiro + URL autorizada
+- preço e comissão comerciais não contam como venda
+- vendas e comissões entram nos totais somente após conversão confirmada pela fonte parceira
+- implantação por Double Check, health check e canary
+- rollback preservado pela versão anterior em produção
 
 Última versão preparada: 2026-10-06 (UTC).
