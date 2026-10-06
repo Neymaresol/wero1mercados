@@ -9,9 +9,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from decimal import Decimal
 import secrets
-from fastapi.responses import RedirectResponse
+import html
+from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.6.9-BR"
+VERSION = "1.7.0-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -253,7 +254,7 @@ def list_categories():
                 ORDER BY name
             """)
             rows = cur.fetchall()
-    return {"market": "BR", "categories": rows, **trace_info()}
+    return {"market": "BR", "categories": rows}
 
 
 
@@ -294,52 +295,6 @@ def require_admin(credentials: HTTPAuthorizationCredentials | None = Depends(adm
         or not secrets.compare_digest(credentials.credentials, WERO_ADMIN_TOKEN)
     ):
         raise HTTPException(status_code=401, detail="Nao autorizado")
-
-
-@app.get("/api/admin/diagnostics/categories")
-def diagnose_categories(_admin: None = Depends(require_admin)):
-    """Read-only category/schema diagnostics. Never returns connection strings or secrets."""
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT current_database() AS database, current_schema() AS schema")
-            location = cur.fetchone()
-            cur.execute("""
-                SELECT id, slug, name, active,
-                       length(slug) AS slug_length,
-                       encode(convert_to(slug, 'UTF8'), 'hex') AS slug_utf8_hex,
-                       length(name) AS name_length,
-                       encode(convert_to(name, 'UTF8'), 'hex') AS name_utf8_hex
-                  FROM categories
-                 WHERE id IN (1, 4)
-                    OR slug IN ('eletrodomesticos', 'eletronicos-celulares')
-                 ORDER BY id
-            """)
-            rows = cur.fetchall()
-            cur.execute("""
-                SELECT conname, contype, pg_get_constraintdef(oid) AS definition
-                  FROM pg_constraint
-                 WHERE conrelid='categories'::regclass
-                 ORDER BY conname
-            """)
-            constraints = cur.fetchall()
-            cur.execute("""
-                SELECT indexname, indexdef
-                  FROM pg_indexes
-                 WHERE schemaname=current_schema()
-                   AND tablename='categories'
-                 ORDER BY indexname
-            """)
-            indexes = cur.fetchall()
-    return {
-        "service": SERVICE,
-        "version": VERSION,
-        "database": location["database"],
-        "schema": location["schema"],
-        "categories": rows,
-        "constraints": constraints,
-        "indexes": indexes,
-        "secrets_exposed": False,
-    }
 
 
 class ProductIn(BaseModel):
@@ -437,8 +392,43 @@ def list_offers():
     return {"offers": rows}
 
 
-@app.get("/go/{offer_id}")
-def go_offer(
+@app.get("/go/{offer_id}", response_class=HTMLResponse)
+def go_offer_landing(
+    offer_id: int,
+    channel: str = Query(default="direct", max_length=40),
+    campaign: str = Query(default="", max_length=80),
+):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT o.id, o.title, o.authorized_url, o.active, p.name AS partner_name,
+                       p.domain, p.active AS partner_active
+                FROM offers o JOIN partners p ON p.id=o.partner_id
+                WHERE o.id=%s
+            """, (offer_id,))
+            row = cur.fetchone()
+    if not row or not row["active"] or not row["partner_active"]:
+        raise HTTPException(status_code=404, detail="Oferta indisponivel")
+    validate_authorized_url(row["authorized_url"], row["domain"])
+    title = html.escape(row["title"])
+    partner = html.escape(row["partner_name"])
+    safe_channel = html.escape(channel, quote=True)
+    safe_campaign = html.escape(campaign, quote=True)
+    return HTMLResponse(f"""<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title></head>
+<body style="font-family:system-ui;max-width:680px;margin:40px auto;padding:0 20px;line-height:1.5">
+<main><h1>{title}</h1>
+<p>Oferta disponível em <strong>{partner}</strong>.</p>
+<p><strong>Publicidade / link de associado.</strong> Como associado da Amazon, eu ganho com compras qualificadas.</p>
+<p>Ao tocar no botão abaixo, você será direcionado para um site da Amazon. Nenhum redirecionamento acontece automaticamente.</p>
+<form method="post" action="/out/{offer_id}?channel={safe_channel}&amp;campaign={safe_campaign}">
+<button type="submit" style="font-size:18px;padding:14px 20px;cursor:pointer">Comprar na Amazon</button>
+</form></main></body></html>""")
+
+
+@app.post("/out/{offer_id}")
+def confirm_offer_click(
     offer_id: int,
     channel: str = Query(default="direct", max_length=40),
     campaign: str = Query(default="", max_length=80),
@@ -454,16 +444,14 @@ def go_offer(
             row = cur.fetchone()
             if not row or not row["active"] or not row["partner_active"]:
                 raise HTTPException(status_code=404, detail="Oferta indisponivel")
-
             validate_authorized_url(row["authorized_url"], row["domain"])
-
             cur.execute(
                 """INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at)
                    VALUES(%s,%s,%s,%s,NOW())""",
                 (offer_id, channel, campaign, SERVICE),
             )
             target = row["authorized_url"]
-    return RedirectResponse(target, status_code=302)
+    return RedirectResponse(target, status_code=303)
 
 
 @app.get("/api/commercial")
