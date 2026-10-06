@@ -11,7 +11,7 @@ from decimal import Decimal
 import secrets
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.6.5-BR"
+VERSION = "1.6.6-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -255,6 +255,46 @@ def list_categories():
     return {"market": "BR", "categories": rows}
 
 
+
+
+@app.get("/api/products")
+def list_products(
+    category: str | None = Query(default=None, max_length=80),
+    limit: int = Query(default=100, ge=1, le=500),
+):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT pr.id, pr.sku, pr.title, pr.brand, pr.description,
+                       pr.market, pr.currency, pr.source, pr.last_validated_at,
+                       c.slug AS category_slug, c.name AS category_name,
+                       COUNT(po.id) FILTER (WHERE po.active=TRUE) AS active_offers,
+                       MIN(po.price_brl) FILTER (WHERE po.active=TRUE) AS best_price_brl
+                FROM products pr
+                LEFT JOIN categories c ON c.id=pr.category_id
+                LEFT JOIN offers po ON po.product_id=pr.id
+                WHERE pr.active=TRUE
+                  AND pr.market='BR'
+                  AND (%s::text IS NULL OR c.slug=%s)
+                GROUP BY pr.id, c.slug, c.name
+                ORDER BY pr.updated_at DESC, pr.id DESC
+                LIMIT %s
+            """, (category, category, limit))
+            rows = cur.fetchall()
+    return {"market": "BR", "currency": "BRL", "products": rows}
+
+
+def require_admin(credentials: HTTPAuthorizationCredentials | None = Depends(admin_bearer)):
+    if not WERO_ADMIN_TOKEN:
+        raise HTTPException(status_code=503, detail="Admin token nao configurado")
+    if (
+        credentials is None
+        or credentials.scheme.lower() != "bearer"
+        or not secrets.compare_digest(credentials.credentials, WERO_ADMIN_TOKEN)
+    ):
+        raise HTTPException(status_code=401, detail="Nao autorizado")
+
+
 @app.get("/api/admin/diagnostics/categories")
 def diagnose_categories(_admin: None = Depends(require_admin)):
     """Read-only category/schema diagnostics. Never returns connection strings or secrets."""
@@ -299,44 +339,6 @@ def diagnose_categories(_admin: None = Depends(require_admin)):
         "indexes": indexes,
         "secrets_exposed": False,
     }
-
-
-@app.get("/api/products")
-def list_products(
-    category: str | None = Query(default=None, max_length=80),
-    limit: int = Query(default=100, ge=1, le=500),
-):
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT pr.id, pr.sku, pr.title, pr.brand, pr.description,
-                       pr.market, pr.currency, pr.source, pr.last_validated_at,
-                       c.slug AS category_slug, c.name AS category_name,
-                       COUNT(po.id) FILTER (WHERE po.active=TRUE) AS active_offers,
-                       MIN(po.price_brl) FILTER (WHERE po.active=TRUE) AS best_price_brl
-                FROM products pr
-                LEFT JOIN categories c ON c.id=pr.category_id
-                LEFT JOIN offers po ON po.product_id=pr.id
-                WHERE pr.active=TRUE
-                  AND pr.market='BR'
-                  AND (%s::text IS NULL OR c.slug=%s)
-                GROUP BY pr.id, c.slug, c.name
-                ORDER BY pr.updated_at DESC, pr.id DESC
-                LIMIT %s
-            """, (category, category, limit))
-            rows = cur.fetchall()
-    return {"market": "BR", "currency": "BRL", "products": rows}
-
-
-def require_admin(credentials: HTTPAuthorizationCredentials | None = Depends(admin_bearer)):
-    if not WERO_ADMIN_TOKEN:
-        raise HTTPException(status_code=503, detail="Admin token nao configurado")
-    if (
-        credentials is None
-        or credentials.scheme.lower() != "bearer"
-        or not secrets.compare_digest(credentials.credentials, WERO_ADMIN_TOKEN)
-    ):
-        raise HTTPException(status_code=401, detail="Nao autorizado")
 
 
 class ProductIn(BaseModel):
