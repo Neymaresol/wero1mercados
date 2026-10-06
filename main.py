@@ -4,18 +4,20 @@ from urllib.parse import urlparse
 
 import psycopg
 from psycopg.rows import dict_row
-from fastapi import FastAPI, HTTPException, Query, Header
+from fastapi import FastAPI, HTTPException, Query, Depends
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from decimal import Decimal
 import secrets
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.6.0-BR"
+VERSION = "1.6.1-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
 
 app = FastAPI(title=SERVICE, version=VERSION)
+admin_bearer = HTTPBearer(auto_error=False)
 
 
 def db():
@@ -243,10 +245,14 @@ def list_products(
     return {"market": "BR", "currency": "BRL", "products": rows}
 
 
-def require_admin(authorization: str | None):
+def require_admin(credentials: HTTPAuthorizationCredentials | None = Depends(admin_bearer)):
     if not WERO_ADMIN_TOKEN:
         raise HTTPException(status_code=503, detail="Admin token nao configurado")
-    if not secrets.compare_digest(authorization or "", f"Bearer {WERO_ADMIN_TOKEN}"):
+    if (
+        credentials is None
+        or credentials.scheme.lower() != "bearer"
+        or not secrets.compare_digest(credentials.credentials, WERO_ADMIN_TOKEN)
+    ):
         raise HTTPException(status_code=401, detail="Nao autorizado")
 
 
@@ -270,8 +276,7 @@ class OfferIn(BaseModel):
 
 
 @app.post("/api/commercial/products")
-def upsert_commercial_product(payload: ProductIn, authorization: str | None = Header(default=None)):
-    require_admin(authorization)
+def upsert_commercial_product(payload: ProductIn, _admin: None = Depends(require_admin)):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT id FROM categories WHERE slug=%s AND active=TRUE", (payload.category_slug.strip().lower(),))
@@ -298,8 +303,7 @@ def validate_authorized_url(url: str, domain: str):
 
 
 @app.post("/api/commercial/offers")
-def register_commercial_offer(payload: OfferIn, authorization: str | None = Header(default=None)):
-    require_admin(authorization)
+def register_commercial_offer(payload: OfferIn, _admin: None = Depends(require_admin)):
     partner_name = payload.partner_name.strip()
     partner_domain = payload.partner_domain.strip().lower()
     title = payload.title.strip()
