@@ -7,7 +7,7 @@ from psycopg.rows import dict_row
 from fastapi import FastAPI, HTTPException, Query, Header
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.4.0-BR"
+VERSION = "1.4.1-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -227,7 +227,7 @@ def list_products(
                 LEFT JOIN product_offers po ON po.product_id=pr.id
                 WHERE pr.active=TRUE
                   AND pr.market='BR'
-                  AND (%s IS NULL OR c.slug=%s)
+                  AND (%s::text IS NULL OR c.slug=%s)
                 GROUP BY pr.id, c.slug, c.name
                 ORDER BY pr.updated_at DESC, pr.id DESC
                 LIMIT %s
