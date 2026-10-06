@@ -83,6 +83,24 @@ def init_db():
                 UNIQUE(product_id, partner_id, authorized_url)
             )
             """)
+            cur.executemany("""
+                INSERT INTO categories(slug, name, active)
+                VALUES(%s, %s, TRUE)
+                ON CONFLICT(slug) DO UPDATE SET name=EXCLUDED.name, active=TRUE
+            """, [
+                ("eletronicos-celulares", "Eletronicos e Celulares"),
+                ("informatica", "Informatica"),
+                ("casa-cozinha", "Casa e Cozinha"),
+                ("eletrodomesticos", "Eletrodomesticos"),
+                ("beleza-cuidados-pessoais", "Beleza e Cuidados Pessoais"),
+                ("moda-acessorios", "Moda e Acessorios"),
+                ("ferramentas", "Ferramentas"),
+                ("automotivo", "Automotivo"),
+                ("esportes", "Esportes"),
+                ("pet", "Pet"),
+                ("cursos-produtos-digitais", "Cursos e Produtos Digitais"),
+                ("servicos", "Servicos"),
+            ])
             cur.execute("CREATE INDEX IF NOT EXISTS idx_products_category_active ON products(category_id, active)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_products_market_active ON products(market, active)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_product_offers_product_active ON product_offers(product_id, active, available)")
