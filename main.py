@@ -5,7 +5,6 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
 
 VERSION = "1.1.0-BR"
 SERVICE = "wero1mercados"
@@ -17,6 +16,7 @@ app = FastAPI(title=SERVICE, version=VERSION)
 def db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
@@ -78,6 +78,7 @@ def health():
         "market": "BR",
         "currency": "BRL",
         "storage": "sqlite",
+        "storage_persistent": not DB_PATH.startswith("/tmp/"),
         "time": now_iso(),
     }
 
@@ -98,7 +99,7 @@ def root():
 def list_offers():
     with db() as conn:
         rows = conn.execute("""
-            SELECT o.id, o.title, o.authorized_url, o.active,
+            SELECT o.id, o.title, o.active,
                    p.id AS partner_id, p.name AS partner_name, p.domain
             FROM offers o JOIN partners p ON p.id=o.partner_id
             ORDER BY o.id DESC
@@ -121,9 +122,13 @@ def go_offer(
         if not row or not row["active"] or not row["partner_active"]:
             raise HTTPException(status_code=404, detail="Oferta indisponivel")
 
-        host = (urlparse(row["authorized_url"]).hostname or "").lower()
-        domain = row["domain"].lower()
-        if host != domain and not host.endswith("." + domain):
+        parsed = urlparse(row["authorized_url"])
+        if parsed.scheme != "https":
+            raise HTTPException(status_code=400, detail="Destino deve usar HTTPS")
+
+        host = (parsed.hostname or "").lower()
+        domain = row["domain"].strip().lower()
+        if not domain or (host != domain and not host.endswith("." + domain)):
             raise HTTPException(status_code=400, detail="Destino nao autorizado")
 
         conn.execute(
@@ -131,7 +136,9 @@ def go_offer(
             (offer_id, channel, campaign, SERVICE, now_iso()),
         )
         conn.commit()
-    return RedirectResponse(row["authorized_url"], status_code=302)
+        target = row["authorized_url"]
+
+    return RedirectResponse(target, status_code=302)
 
 
 @app.get("/api/commercial")
