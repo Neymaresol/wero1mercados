@@ -1,63 +1,67 @@
 import os
-import sqlite3
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
+import psycopg
+from psycopg.rows import dict_row
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.1.0-BR"
+VERSION = "1.2.0-BR"
 SERVICE = "wero1mercados"
-DB_PATH = os.getenv("DB_PATH", "/tmp/wero1mercados.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 app = FastAPI(title=SERVICE, version=VERSION)
 
 
 def db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL nao configurada")
+    return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
 
 def init_db():
     with db() as conn:
-        conn.executescript("""
-        CREATE TABLE IF NOT EXISTS partners (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            domain TEXT NOT NULL UNIQUE,
-            active INTEGER NOT NULL DEFAULT 1
-        );
-        CREATE TABLE IF NOT EXISTS offers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            partner_id INTEGER NOT NULL,
-            title TEXT NOT NULL,
-            authorized_url TEXT NOT NULL,
-            active INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(partner_id) REFERENCES partners(id)
-        );
-        CREATE TABLE IF NOT EXISTS clicks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            offer_id INTEGER NOT NULL,
-            channel TEXT NOT NULL DEFAULT 'direct',
-            campaign TEXT NOT NULL DEFAULT '',
-            robot_id TEXT NOT NULL DEFAULT 'wero1mercados',
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(offer_id) REFERENCES offers(id)
-        );
-        CREATE TABLE IF NOT EXISTS conversions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            external_id TEXT NOT NULL UNIQUE,
-            offer_id INTEGER,
-            status TEXT NOT NULL,
-            sale_amount_brl REAL,
-            commission_brl REAL,
-            confirmed_at TEXT,
-            FOREIGN KEY(offer_id) REFERENCES offers(id)
-        );
-        """)
+        with conn.cursor() as cur:
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS partners (
+                id BIGSERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                domain TEXT NOT NULL UNIQUE,
+                active BOOLEAN NOT NULL DEFAULT TRUE
+            )
+            """)
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS offers (
+                id BIGSERIAL PRIMARY KEY,
+                partner_id BIGINT NOT NULL REFERENCES partners(id),
+                title TEXT NOT NULL,
+                authorized_url TEXT NOT NULL,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """)
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS clicks (
+                id BIGSERIAL PRIMARY KEY,
+                offer_id BIGINT NOT NULL REFERENCES offers(id),
+                channel TEXT NOT NULL DEFAULT 'direct',
+                campaign TEXT NOT NULL DEFAULT '',
+                robot_id TEXT NOT NULL DEFAULT 'wero1mercados',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """)
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS conversions (
+                id BIGSERIAL PRIMARY KEY,
+                external_id TEXT NOT NULL UNIQUE,
+                offer_id BIGINT REFERENCES offers(id),
+                status TEXT NOT NULL,
+                sale_amount_brl NUMERIC(14,2),
+                commission_brl NUMERIC(14,2),
+                confirmed_at TIMESTAMPTZ
+            )
+            """)
 
 
 @app.on_event("startup")
@@ -71,14 +75,23 @@ def now_iso():
 
 @app.get("/health")
 def health():
+    database_ok = False
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                database_ok = cur.fetchone() is not None
+    except Exception:
+        database_ok = False
     return {
-        "status": "ok",
+        "status": "ok" if database_ok else "degraded",
         "service": SERVICE,
         "version": VERSION,
         "market": "BR",
         "currency": "BRL",
-        "storage": "sqlite",
-        "storage_persistent": not DB_PATH.startswith("/tmp/"),
+        "storage": "postgresql",
+        "storage_persistent": database_ok,
+        "database_ok": database_ok,
         "time": now_iso(),
     }
 
@@ -88,7 +101,7 @@ def root():
     return {
         "service": SERVICE,
         "version": VERSION,
-        "status": "development",
+        "status": "homologation",
         "market": "BR",
         "currency": "BRL",
         "message": "wero1mercados Brasil",
@@ -98,13 +111,15 @@ def root():
 @app.get("/api/offers")
 def list_offers():
     with db() as conn:
-        rows = conn.execute("""
-            SELECT o.id, o.title, o.active,
-                   p.id AS partner_id, p.name AS partner_name, p.domain
-            FROM offers o JOIN partners p ON p.id=o.partner_id
-            ORDER BY o.id DESC
-        """).fetchall()
-    return {"offers": [dict(r) for r in rows]}
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT o.id, o.title, o.active,
+                       p.id AS partner_id, p.name AS partner_name, p.domain
+                FROM offers o JOIN partners p ON p.id=o.partner_id
+                ORDER BY o.id DESC
+            """)
+            rows = cur.fetchall()
+    return {"offers": rows}
 
 
 @app.get("/go/{offer_id}")
@@ -114,46 +129,50 @@ def go_offer(
     campaign: str = Query(default="", max_length=80),
 ):
     with db() as conn:
-        row = conn.execute("""
-            SELECT o.id, o.authorized_url, o.active, p.domain, p.active AS partner_active
-            FROM offers o JOIN partners p ON p.id=o.partner_id
-            WHERE o.id=?
-        """, (offer_id,)).fetchone()
-        if not row or not row["active"] or not row["partner_active"]:
-            raise HTTPException(status_code=404, detail="Oferta indisponivel")
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT o.id, o.authorized_url, o.active, p.domain,
+                       p.active AS partner_active
+                FROM offers o JOIN partners p ON p.id=o.partner_id
+                WHERE o.id=%s
+            """, (offer_id,))
+            row = cur.fetchone()
+            if not row or not row["active"] or not row["partner_active"]:
+                raise HTTPException(status_code=404, detail="Oferta indisponivel")
 
-        parsed = urlparse(row["authorized_url"])
-        if parsed.scheme != "https":
-            raise HTTPException(status_code=400, detail="Destino deve usar HTTPS")
+            parsed = urlparse(row["authorized_url"])
+            if parsed.scheme != "https":
+                raise HTTPException(status_code=400, detail="Destino deve usar HTTPS")
+            host = (parsed.hostname or "").lower()
+            domain = row["domain"].strip().lower()
+            if not domain or (host != domain and not host.endswith("." + domain)):
+                raise HTTPException(status_code=400, detail="Destino nao autorizado")
 
-        host = (parsed.hostname or "").lower()
-        domain = row["domain"].strip().lower()
-        if not domain or (host != domain and not host.endswith("." + domain)):
-            raise HTTPException(status_code=400, detail="Destino nao autorizado")
-
-        conn.execute(
-            "INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at) VALUES(?,?,?,?,?)",
-            (offer_id, channel, campaign, SERVICE, now_iso()),
-        )
-        conn.commit()
-        target = row["authorized_url"]
-
+            cur.execute(
+                """INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at)
+                   VALUES(%s,%s,%s,%s,NOW())""",
+                (offer_id, channel, campaign, SERVICE),
+            )
+            target = row["authorized_url"]
     return RedirectResponse(target, status_code=302)
 
 
 @app.get("/api/commercial")
 def commercial():
     with db() as conn:
-        offers = conn.execute("SELECT COUNT(*) c FROM offers WHERE active=1").fetchone()["c"]
-        clicks = conn.execute("SELECT COUNT(*) c FROM clicks").fetchone()["c"]
-        confirmed = conn.execute(
-            "SELECT COUNT(*) c FROM conversions WHERE status='confirmed'"
-        ).fetchone()["c"]
-        totals = conn.execute("""
-            SELECT COALESCE(SUM(sale_amount_brl),0) sales,
-                   COALESCE(SUM(commission_brl),0) commission
-            FROM conversions WHERE status='confirmed'
-        """).fetchone()
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS c FROM offers WHERE active=TRUE")
+            offers = cur.fetchone()["c"]
+            cur.execute("SELECT COUNT(*) AS c FROM clicks")
+            clicks = cur.fetchone()["c"]
+            cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='confirmed'")
+            confirmed = cur.fetchone()["c"]
+            cur.execute("""
+                SELECT COALESCE(SUM(sale_amount_brl),0) AS sales,
+                       COALESCE(SUM(commission_brl),0) AS commission
+                FROM conversions WHERE status='confirmed'
+            """)
+            totals = cur.fetchone()
     return {
         "service": SERVICE,
         "version": VERSION,
@@ -162,7 +181,7 @@ def commercial():
         "active_offers": offers,
         "clicks": clicks,
         "confirmed_sales": confirmed,
-        "confirmed_sales_brl": totals["sales"],
-        "confirmed_commission_brl": totals["commission"],
+        "confirmed_sales_brl": float(totals["sales"]),
+        "confirmed_commission_brl": float(totals["commission"]),
         "financial_rule": "Somente conversoes confirmadas pela fonte parceira.",
     }
