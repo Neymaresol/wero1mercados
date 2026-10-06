@@ -7,7 +7,7 @@ from psycopg.rows import dict_row
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.3.0-BR"
+VERSION = "1.3.1-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
@@ -88,7 +88,7 @@ def init_db():
                 VALUES(%s, %s, TRUE)
                 ON CONFLICT(slug) DO UPDATE SET name=EXCLUDED.name, active=TRUE
             """, [
-                ("eletronicos-celulares", "Eletronicos e Celulares"),
+                ("eletronicos-celulares", "Eletrônicos e Celulares"),
                 ("informatica", "Informatica"),
                 ("casa-cozinha", "Casa e Cozinha"),
                 ("eletrodomesticos", "Eletrodomesticos"),
@@ -101,6 +101,13 @@ def init_db():
                 ("cursos-produtos-digitais", "Cursos e Produtos Digitais"),
                 ("servicos", "Servicos"),
             ])
+            cur.execute("SELECT id FROM categories WHERE slug=%s", ("eletronicos-celulares",))
+            canonical = cur.fetchone()
+            cur.execute("SELECT id FROM categories WHERE slug=%s", ("eletrodomésticos",))
+            legacy = cur.fetchone()
+            if legacy and canonical and legacy["id"] != canonical["id"]:
+                cur.execute("UPDATE products SET category_id=%s WHERE category_id=%s", (canonical["id"], legacy["id"]))
+                cur.execute("UPDATE categories SET active=FALSE WHERE id=%s", (legacy["id"],))
             cur.execute("CREATE INDEX IF NOT EXISTS idx_products_category_active ON products(category_id, active)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_products_market_active ON products(market, active)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_product_offers_product_active ON product_offers(product_id, active, available)")
