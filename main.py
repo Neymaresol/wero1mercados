@@ -11,7 +11,7 @@ from decimal import Decimal
 import secrets
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.6.2-BR"
+VERSION = "1.6.3-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -89,22 +89,39 @@ def init_db():
                 UNIQUE(product_id, partner_id, authorized_url)
             )
             """)
-            # Repair legacy category state before seeding canonical slugs.
-            # Some older databases stored "Eletrônicos e Celulares" under the
-            # "eletrodomesticos" slug, colliding with the real appliance category.
+            # Deterministic repair for the legacy category collision.
+            # Preserve the canonical appliance row and move the mislabeled row
+            # to eletronicos-celulares. If a canonical electronics row already
+            # exists, move product references to it and deactivate the duplicate.
             cur.execute("""
-                UPDATE categories
-                   SET slug='eletronicos-celulares',
-                       name='Eletrônicos e Celulares',
-                       active=TRUE
-                 WHERE slug='eletrodomesticos'
-                   AND name='Eletrônicos e Celulares'
-                   AND NOT EXISTS (
-                       SELECT 1 FROM categories c2
-                        WHERE c2.slug='eletronicos-celulares'
-                          AND c2.id<>categories.id
-                   )
+                SELECT id FROM categories
+                 WHERE slug='eletrodomesticos' AND name='Eletrônicos e Celulares'
+                 ORDER BY id LIMIT 1
             """)
+            legacy_electronics = cur.fetchone()
+            cur.execute("""
+                SELECT id FROM categories
+                 WHERE slug='eletronicos-celulares'
+                 ORDER BY id LIMIT 1
+            """)
+            canonical_electronics = cur.fetchone()
+            if legacy_electronics:
+                legacy_id = legacy_electronics["id"]
+                if canonical_electronics and canonical_electronics["id"] != legacy_id:
+                    cur.execute(
+                        "UPDATE products SET category_id=%s WHERE category_id=%s",
+                        (canonical_electronics["id"], legacy_id),
+                    )
+                    cur.execute("UPDATE categories SET active=FALSE WHERE id=%s", (legacy_id,))
+                else:
+                    cur.execute(
+                        """UPDATE categories
+                              SET slug='eletronicos-celulares',
+                                  name='Eletrônicos e Celulares',
+                                  active=TRUE
+                            WHERE id=%s""",
+                        (legacy_id,),
+                    )
 
             cur.executemany("""
                 INSERT INTO categories(slug, name, active)
