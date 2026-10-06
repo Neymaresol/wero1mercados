@@ -10,7 +10,7 @@ from decimal import Decimal
 import secrets
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.5.0-BR"
+VERSION = "1.6.0-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -130,6 +130,10 @@ def init_db():
             """)
             cur.execute("""
             ALTER TABLE offers ADD COLUMN IF NOT EXISTS source_updated_at TIMESTAMPTZ
+            """)
+            cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_offers_product_partner_url
+            ON offers(product_id, partner_id, authorized_url)
             """)
             cur.execute("""
             CREATE TABLE IF NOT EXISTS clicks (
@@ -318,6 +322,10 @@ def register_commercial_offer(payload: OfferIn, authorization: str | None = Head
                 INSERT INTO offers(partner_id, product_id, title, authorized_url, price_brl,
                                    commission_brl, active, source, source_updated_at)
                 VALUES(%s,%s,%s,%s,%s,%s,TRUE,'authorized_partner',NOW())
+                ON CONFLICT(product_id, partner_id, authorized_url)
+                DO UPDATE SET title=EXCLUDED.title, price_brl=EXCLUDED.price_brl,
+                              commission_brl=EXCLUDED.commission_brl, active=TRUE,
+                              source='authorized_partner', source_updated_at=NOW()
                 RETURNING id
             """, (partner_id, product["id"], title, authorized_url,
                   payload.price_brl, payload.commission_brl))
