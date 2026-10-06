@@ -11,7 +11,7 @@ from decimal import Decimal
 import secrets
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.6.6-BR"
+VERSION = "1.6.7-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -255,6 +255,52 @@ def list_categories():
     return {"market": "BR", "categories": rows}
 
 
+
+
+@app.get("/api/diagnostics/category-integrity")
+def category_integrity_diagnostic():
+    """Temporary read-only integrity check; exposes no credentials or connection metadata."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, slug, name, active,
+                       length(slug) AS slug_length,
+                       octet_length(slug) AS slug_octets,
+                       encode(convert_to(slug, 'UTF8'), 'hex') AS slug_utf8_hex
+                  FROM categories
+                 WHERE id IN (1, 4)
+                    OR slug IN ('eletrodomesticos', 'eletronicos-celulares')
+                 ORDER BY id
+            """)
+            rows = cur.fetchall()
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                     WHERE conrelid='categories'::regclass
+                       AND contype='u'
+                       AND pg_get_constraintdef(oid) ILIKE '%slug%'
+                ) AS slug_unique_constraint
+            """)
+            constraint_state = cur.fetchone()
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_indexes
+                     WHERE schemaname=current_schema()
+                       AND tablename='categories'
+                       AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
+                       AND indexdef ILIKE '%slug%'
+                ) AS slug_unique_index
+            """)
+            index_state = cur.fetchone()
+    return {
+        "service": SERVICE,
+        "version": VERSION,
+        "categories": rows,
+        "slug_unique_constraint": constraint_state["slug_unique_constraint"],
+        "slug_unique_index": index_state["slug_unique_index"],
+        "read_only": True,
+        "secrets_exposed": False,
+    }
 
 
 @app.get("/api/products")
