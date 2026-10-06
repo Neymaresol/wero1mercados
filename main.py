@@ -11,7 +11,7 @@ from decimal import Decimal
 import secrets
 from fastapi.responses import RedirectResponse
 
-VERSION = "1.6.4-BR"
+VERSION = "1.6.5-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -253,6 +253,52 @@ def list_categories():
             """)
             rows = cur.fetchall()
     return {"market": "BR", "categories": rows}
+
+
+@app.get("/api/admin/diagnostics/categories")
+def diagnose_categories(_admin: None = Depends(require_admin)):
+    """Read-only category/schema diagnostics. Never returns connection strings or secrets."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT current_database() AS database, current_schema() AS schema")
+            location = cur.fetchone()
+            cur.execute("""
+                SELECT id, slug, name, active,
+                       length(slug) AS slug_length,
+                       encode(convert_to(slug, 'UTF8'), 'hex') AS slug_utf8_hex,
+                       length(name) AS name_length,
+                       encode(convert_to(name, 'UTF8'), 'hex') AS name_utf8_hex
+                  FROM categories
+                 WHERE id IN (1, 4)
+                    OR slug IN ('eletrodomesticos', 'eletronicos-celulares')
+                 ORDER BY id
+            """)
+            rows = cur.fetchall()
+            cur.execute("""
+                SELECT conname, contype, pg_get_constraintdef(oid) AS definition
+                  FROM pg_constraint
+                 WHERE conrelid='categories'::regclass
+                 ORDER BY conname
+            """)
+            constraints = cur.fetchall()
+            cur.execute("""
+                SELECT indexname, indexdef
+                  FROM pg_indexes
+                 WHERE schemaname=current_schema()
+                   AND tablename='categories'
+                 ORDER BY indexname
+            """)
+            indexes = cur.fetchall()
+    return {
+        "service": SERVICE,
+        "version": VERSION,
+        "database": location["database"],
+        "schema": location["schema"],
+        "categories": rows,
+        "constraints": constraints,
+        "indexes": indexes,
+        "secrets_exposed": False,
+    }
 
 
 @app.get("/api/products")
