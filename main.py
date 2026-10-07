@@ -13,7 +13,7 @@ import html
 import time
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.12.0-BR"
+VERSION = "1.13.0-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -593,6 +593,34 @@ def ingest_provider_conversion(
         "provider_status": status,
         "financial_rule": "Somente dados recebidos de fonte parceira autorizada devem usar este endpoint.",
     }
+
+
+@app.get("/api/acquisition")
+def acquisition():
+    """Diagnose the real commercial funnel and prioritize authorized offers without fabricating demand."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT o.id,o.title,o.price_brl,o.commission_brl,COUNT(c.id) AS clicks
+                           FROM offers o LEFT JOIN clicks c ON c.offer_id=o.id
+                           WHERE o.active=TRUE GROUP BY o.id
+                           ORDER BY clicks DESC,o.commission_brl DESC NULLS LAST,o.id""")
+            rows=cur.fetchall()
+            cur.execute("SELECT COUNT(*) AS c FROM clicks"); clicks=cur.fetchone()["c"]
+            cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='confirmed'"); sales=cur.fetchone()["c"]
+            cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='pending'"); pending=cur.fetchone()["c"]
+    if not rows: bottleneck,next_action="NO_ACTIVE_OFFERS","IMPORT_AUTHORIZED_OFFERS"
+    elif clicks==0: bottleneck,next_action="NO_TRACKED_TRAFFIC","DISTRIBUTE_TRACKED_CAMPAIGNS"
+    elif pending==0 and sales==0: bottleneck,next_action="NO_CONVERSION_SIGNAL","OPTIMIZE_OFFER_AND_LANDING"
+    elif sales==0: bottleneck,next_action="PENDING_WITHOUT_CONFIRMED_SALE","VERIFY_PROVIDER_AND_OPTIMIZE_CONVERSION"
+    else: bottleneck,next_action="FUNNEL_CONVERTING","SCALE_WINNERS"
+    queue=[{"priority":n+1,"offer_id":r["id"],"title":r["title"],"tracked_clicks":r["clicks"],
+            "tracked_url":f"/go/{r['id']}?channel=campaign&campaign=wero-acquisition",
+            "objective":"FIRST_CONFIRMED_SALE" if sales==0 else "SCALE_CONFIRMED_SALES"}
+           for n,r in enumerate(rows)]
+    return {"engine":"wero-acquisition","service":SERVICE,"version":VERSION,"bottleneck":bottleneck,
+            "next_action":next_action,"active_offers":len(rows),"tracked_clicks":clicks,
+            "pending_conversions":pending,"confirmed_sales":sales,"campaign_queue":queue,
+            "rule":"Somente conversoes reais confirmadas pela fonte parceira contam como vendas."}
 
 
 @app.get("/api/commercial")
