@@ -12,7 +12,7 @@ import secrets
 import html
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.9.1-BR"
+VERSION = "1.10.0-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -254,8 +254,14 @@ def dashboard():
 <nav class="nav"><span class="on">⌂</span><span>📡</span><span>🤖</span><span>◎</span><span>💵</span><span>📈</span></nav>
 <section class="hero"><div><h2>PARADIGMA<br><b>WERO</b></h2><h3>DASHBOARD MESTRE</h3><p>ROBÔS • VENDAS • FINANCEIRO • OPERAÇÃO GLOBAL</p></div></section>
 <section class="status"><div class="live">● WERO1MERCADOS • LIVE</div><h3>ARQUITETURA PARADIGMA</h3><div class="muted">Dados reais • atualização automática</div></section>
-<section class="commission"><div class="label">💰 WERO — COMISSÃO GERAL</div><div id="commission" class="money">R$ 0,00</div><div class="muted">Soma das comissões confirmadas pela fonte parceira</div></section>
+<section class="commission"><div class="label">💰 WERO — COMISSÃO GERAL</div><div id="commission" class="money">R$ 0,00</div><div class="muted">wero1 operário + wero1mercados + wero1ouro + wero1eletrico + demais PAIS • somente valores confirmados</div></section>
+<section class="status"><div class="live">🕷️ ARANHA PARADIGMA • ROBÔS PAI</div><h3>VISÃO GERAL DAS FRENTES</h3><div class="muted">Cada perna representa um robô PAI; filhos e redes sociais ficam vinculados exclusivamente ao respectivo PAI.</div></section>
 <section class="grid">
+<div class="metric"><div class="title">🤖 wero1 operário</div><div class="value green">PAI 1</div><div class="muted">Hotmart • produtos digitais<br>Filhos: TikTok • Instagram • Facebook • Kwai</div></div>
+<div class="metric"><div class="title">🛒 wero1mercados</div><div class="value green">PAI 2</div><div class="muted">Mercados • parceiros<br>Filhos/canais vinculados a esta frente</div></div>
+<div class="metric"><div class="title">👑 wero1ouro</div><div class="value">PAI 3</div><div class="muted">Aguardando integração real</div></div>
+<div class="metric"><div class="title">⚡ wero1eletrico</div><div class="value">PAI 4</div><div class="muted">Aguardando integração real</div></div>
+<div class="metric fin"><div class="title">🌐 Redes sociais por robô PAI</div><div class="finrow"><div>🎵 TikTok<b>por PAI</b></div><div>📸 Instagram<b>por PAI</b></div><div>📘 Facebook<b>por PAI</b></div><div>🟠 Kwai<b>por PAI</b></div></div><p class="muted">Cliques, campanhas e conversões devem ser atribuídos ao PAI de origem. Nenhum dado social é marcado como conectado sem integração real.</p></div>
 <div class="metric"><div class="title">🤖 Robôs<br>Online</div><div id="robots" class="value">1 / 1</div><div class="bar"><i id="healthbar"></i></div></div>
 <div class="metric"><div class="title">🛒 Vendas<br>Confirmadas</div><div id="sales" class="value">0</div><div class="muted">Confirmadas</div></div>
 <div class="metric"><div class="title">🎯 Ofertas<br>Ativas</div><div id="offers" class="value">0</div></div>
