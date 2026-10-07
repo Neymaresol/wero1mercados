@@ -12,7 +12,7 @@ import secrets
 import html
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.8.0-BR"
+VERSION = "1.9.0-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -229,6 +229,52 @@ def health():
         "database_ok": database_ok,
         "time": now_iso(),
     }
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard():
+    return HTMLResponse("""<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PARADIGMA • wero1mercados</title>
+<style>
+:root{color-scheme:dark;--bg:#020812;--panel:#071526;--line:#183b5d;--gold:#f1c75b;--green:#49f2a4;--cyan:#62d8ff;--text:#eef7ff;--muted:#89a3bb}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% 0,#0b2742 0,#020812 45%);font-family:system-ui,-apple-system,sans-serif;color:var(--text);min-height:100vh}
+.wrap{max-width:1180px;margin:auto;padding:22px}.top{display:flex;justify-content:space-between;gap:16px;align-items:center;border-bottom:1px solid #173650;padding-bottom:16px}
+.brand{font-size:clamp(24px,5vw,48px);font-weight:900;letter-spacing:.08em;color:var(--gold)}.sub{color:var(--cyan);font-weight:700}.pill{border:1px solid var(--green);color:var(--green);padding:8px 14px;border-radius:999px;font-weight:800}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:22px}.card{background:linear-gradient(145deg,#08192b,#04101e);border:1px solid var(--line);border-radius:18px;padding:18px;min-height:130px;box-shadow:0 10px 30px #0008}
+.label{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.08em}.value{font-size:clamp(28px,4vw,45px);font-weight:900;margin-top:14px}.green{color:var(--green)}.gold{color:var(--gold)}.cyan{color:var(--cyan)}
+.wide{grid-column:span 2}.footer{margin-top:18px;color:var(--muted);font-size:13px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+@media(max-width:800px){.grid{grid-template-columns:repeat(2,1fr)}.wide{grid-column:span 2}}@media(max-width:470px){.wrap{padding:14px}.top{align-items:flex-start;flex-direction:column}.grid{grid-template-columns:1fr}.wide{grid-column:span 1}.card{min-height:110px}}
+</style></head><body><div class="wrap">
+<div class="top"><div><div class="brand">PARADIGMA</div><div class="sub">WERO1MERCADOS • LIVE</div></div><div id="prod" class="pill">● PRODUÇÃO</div></div>
+<div class="grid">
+<div class="card"><div class="label">Saúde operacional</div><div id="health" class="value green">...</div></div>
+<div class="card"><div class="label">Versão</div><div id="version" class="value cyan">...</div></div>
+<div class="card"><div class="label">Ofertas ativas</div><div id="offers" class="value gold">...</div></div>
+<div class="card"><div class="label">Cliques</div><div id="clicks" class="value cyan">...</div></div>
+<div class="card"><div class="label">Vendas confirmadas</div><div id="sales" class="value green">...</div></div>
+<div class="card"><div class="label">Produtos ativos</div><div id="products" class="value gold">...</div></div>
+<div class="card wide"><div class="label">Valor de vendas confirmadas</div><div id="salesbrl" class="value green">R$ 0,00</div></div>
+<div class="card wide"><div class="label">Comissão confirmada</div><div id="commission" class="value green">R$ 0,00</div></div>
+</div>
+<div class="footer"><span id="updated">Atualizando...</span><span>Valores financeiros somente após confirmação da fonte parceira.</span></div>
+</div><script>
+const brl=v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(v||0));
+async function refresh(){
+ try{
+  const [h,c,p]=await Promise.all([fetch('/health',{cache:'no-store'}),fetch('/api/commercial',{cache:'no-store'}),fetch('/api/products?limit=500',{cache:'no-store'})]);
+  if(!h.ok||!c.ok||!p.ok) throw new Error('HTTP');
+  const H=await h.json(),C=await c.json(),P=await p.json();
+  health.textContent=(H.status==='ok'&&H.database_ok)?'ONLINE':'ATENÇÃO';
+  health.className='value '+((H.status==='ok'&&H.database_ok)?'green':'gold');
+  version.textContent=H.version||'-'; offers.textContent=C.active_offers??0; clicks.textContent=C.clicks??0;
+  sales.textContent=C.confirmed_sales??0; salesbrl.textContent=brl(C.confirmed_sales_brl); commission.textContent=brl(C.confirmed_commission_brl);
+  products.textContent=Array.isArray(P.products)?P.products.length:0;
+  updated.textContent='Última atualização: '+new Date().toLocaleString('pt-BR');
+ }catch(e){health.textContent='ATENÇÃO';health.className='value gold';updated.textContent='Falha ao atualizar dados';}
+}
+refresh();setInterval(refresh,15000);
+</script></body></html>""")
 
 
 @app.get("/")
