@@ -12,7 +12,7 @@ import secrets
 import html
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.10.0-BR"
+VERSION = "1.10.1-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -234,7 +234,7 @@ def health():
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard():
     return HTMLResponse("""<!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>PARADIGMA WERO • Dashboard Mestre</title>
 <style>
 :root{color-scheme:dark;--bg:#00101e;--card:#031525;--line:#0c4f80;--blue:#0879ff;--green:#00ef8a;--gold:#f6c84c;--text:#f4f7fb;--muted:#8fa7ba}
@@ -249,19 +249,36 @@ def dashboard():
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:14px 16px}.metric{margin:0;padding:22px;min-height:205px}.metric .title{font-size:22px}.metric .value{font-size:48px;font-weight:800;margin-top:36px}.metric .value.green{color:var(--green)}.bar{height:22px;background:#062436;border-radius:20px;margin-top:25px;overflow:hidden}.bar i{display:block;height:100%;width:100%;background:var(--green);border-radius:20px}
 .fin{grid-column:span 2;min-height:auto}.finrow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:18px}.finrow div{padding:12px;border:1px solid #164262;border-radius:12px;text-align:center}.finrow b{display:block;margin-top:8px;color:var(--muted)}
 .foot{padding:12px 20px;color:var(--muted);font-size:13px}@media(max-width:560px){.crown{width:64px;height:64px;font-size:31px}.brand h1{font-size:24px}.brand small{font-size:10px}.prod{font-size:15px;padding:10px}.hero{height:205px}.hero h2{font-size:30px}.grid{gap:12px}.metric{padding:18px;min-height:180px}.metric .title{font-size:18px}.metric .value{font-size:39px}.finrow{grid-template-columns:1fr 1fr}}
+
+html,body{max-width:100%;overflow-x:hidden}
+*{box-sizing:border-box}
+img,svg,canvas{max-width:100%;height:auto}
+@media(max-width:720px){
+  .wrap{width:100%;max-width:100%;padding:12px}
+  .hero{min-width:0;padding:22px 14px}
+  .hero h1{font-size:clamp(28px,10vw,48px);letter-spacing:.12em;overflow-wrap:anywhere}
+  .hero h2{font-size:clamp(22px,8vw,38px)}
+  .hero .sub{font-size:13px;white-space:normal}
+  .grid{grid-template-columns:1fr 1fr;gap:10px}
+  .metric{min-width:0;padding:16px 12px}
+  .metric .value{font-size:clamp(26px,9vw,42px)}
+  .fin{grid-column:1/-1}
+  .finrow{grid-template-columns:1fr 1fr}
+  nav{overflow-x:auto;max-width:100%}
+}
 </style></head><body><main class="page">
 <header class="header"><div class="brand"><div class="crown">♛</div><div><h1>PARADIGMA</h1><small>ECOSSISTEMA WERO</small></div></div><div class="prod">● PRODUÇÃO</div></header>
 <nav class="nav"><span class="on">⌂</span><span>📡</span><span>🤖</span><span>◎</span><span>💵</span><span>📈</span></nav>
 <section class="hero"><div><h2>PARADIGMA<br><b>WERO</b></h2><h3>DASHBOARD MESTRE</h3><p>ROBÔS • VENDAS • FINANCEIRO • OPERAÇÃO GLOBAL</p></div></section>
 <section class="status"><div class="live">● WERO1MERCADOS • LIVE</div><h3>ARQUITETURA PARADIGMA</h3><div class="muted">Dados reais • atualização automática</div></section>
-<section class="commission"><div class="label">💰 WERO — COMISSÃO GERAL</div><div id="commission" class="money">R$ 0,00</div><div class="muted">wero1 operário + wero1mercados + wero1ouro + wero1eletrico + demais PAIS • somente valores confirmados</div></section>
-<section class="status"><div class="live">🕷️ ARANHA PARADIGMA • ROBÔS PAI</div><h3>VISÃO GERAL DAS FRENTES</h3><div class="muted">Cada perna representa um robô PAI; filhos e redes sociais ficam vinculados exclusivamente ao respectivo PAI.</div></section>
+<section class="commission"><div class="label">💰 WERO — COMISSÃO GERAL</div><div id="commission" class="money">R$ 0,00</div><div class="muted">wero1 operário + wero1mercados + wero1ouro + wero1eletrico + demais robôs • somente valores confirmados</div></section>
+<section class="status"><div class="live">PARADIGMA • ROBÔS</div><h3>VISÃO GERAL DAS FRENTES</h3><div class="muted">Visão integrada dos robôs, vendas, comissões, financeiro e redes sociais.</div></section>
 <section class="grid">
-<div class="metric"><div class="title">🤖 wero1 operário</div><div class="value green">PAI 1</div><div class="muted">Hotmart • produtos digitais<br>Filhos: TikTok • Instagram • Facebook • Kwai</div></div>
-<div class="metric"><div class="title">🛒 wero1mercados</div><div class="value green">PAI 2</div><div class="muted">Mercados • parceiros<br>Filhos/canais vinculados a esta frente</div></div>
-<div class="metric"><div class="title">👑 wero1ouro</div><div class="value">PAI 3</div><div class="muted">Aguardando integração real</div></div>
-<div class="metric"><div class="title">⚡ wero1eletrico</div><div class="value">PAI 4</div><div class="muted">Aguardando integração real</div></div>
-<div class="metric fin"><div class="title">🌐 Redes sociais por robô PAI</div><div class="finrow"><div>🎵 TikTok<b>por PAI</b></div><div>📸 Instagram<b>por PAI</b></div><div>📘 Facebook<b>por PAI</b></div><div>🟠 Kwai<b>por PAI</b></div></div><p class="muted">Cliques, campanhas e conversões devem ser atribuídos ao PAI de origem. Nenhum dado social é marcado como conectado sem integração real.</p></div>
+<div class="metric"><div class="title">🤖 wero1 operário</div><div class="value green">WERO1</div><div class="muted">Hotmart • produtos digitais<br>Filhos: TikTok • Instagram • Facebook • Kwai</div></div>
+<div class="metric"><div class="title">🛒 wero1mercados</div><div class="value green">WERO2</div><div class="muted">Mercados • parceiros<br>Filhos/canais vinculados a esta frente</div></div>
+<div class="metric"><div class="title">👑 wero1ouro</div><div class="value">WERO3</div><div class="muted">Aguardando integração real</div></div>
+<div class="metric"><div class="title">⚡ wero1eletrico</div><div class="value">WERO4</div><div class="muted">Aguardando integração real</div></div>
+<div class="metric fin"><div class="title">🌐 Redes Sociais / IA</div><div class="finrow"><div>🎵 TikTok<b>canal</b></div><div>📸 Instagram<b>canal</b></div><div>📘 Facebook<b>canal</b></div><div>🟠 Kwai<b>canal</b></div></div><p class="muted">Cliques, campanhas e conversões devem ser atribuídos ao robô de origem. Nenhum dado social é marcado como conectado sem integração real.</p></div>
 <div class="metric"><div class="title">🤖 Robôs<br>Online</div><div id="robots" class="value">1 / 1</div><div class="bar"><i id="healthbar"></i></div></div>
 <div class="metric"><div class="title">🛒 Vendas<br>Confirmadas</div><div id="sales" class="value">0</div><div class="muted">Confirmadas</div></div>
 <div class="metric"><div class="title">🎯 Ofertas<br>Ativas</div><div id="offers" class="value">0</div></div>
@@ -460,7 +477,7 @@ def go_offer_landing(
     safe_channel = html.escape(channel, quote=True)
     safe_campaign = html.escape(campaign, quote=True)
     return HTMLResponse(f"""<!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>{title}</title></head>
 <body style="font-family:system-ui;max-width:680px;margin:40px auto;padding:0 20px;line-height:1.5">
 <main><h1>{title}</h1>
