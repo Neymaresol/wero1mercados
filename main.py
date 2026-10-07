@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from decimal import Decimal
 import secrets
 import html
+import time
 from fastapi.responses import RedirectResponse, HTMLResponse
 
 VERSION = "1.12.0-BR"
@@ -19,6 +20,33 @@ WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
 
 app = FastAPI(title=SERVICE, version=VERSION)
 admin_bearer = HTTPBearer(auto_error=False)
+BOOT_MONO = time.monotonic()
+PERF_MODE = os.getenv("WERO_PERFORMANCE_MODE", "game").lower()
+PERF = {"requests": 0, "errors": 0, "latency_ms_ema": 0.0}
+
+@app.middleware("http")
+async def performance_telemetry(request, call_next):
+    start = time.perf_counter()
+    PERF["requests"] += 1
+    try:
+        response = await call_next(request)
+        return response
+    except Exception:
+        PERF["errors"] += 1
+        raise
+    finally:
+        ms = (time.perf_counter() - start) * 1000
+        PERF["latency_ms_ema"] = round(ms if PERF["latency_ms_ema"] == 0 else PERF["latency_ms_ema"] * .85 + ms * .15, 2)
+
+@app.get("/api/performance")
+def performance():
+    uptime = max(time.monotonic() - BOOT_MONO, .001)
+    return {"service": SERVICE, "version": VERSION, "mode": PERF_MODE,
+            "requests": PERF["requests"], "errors": PERF["errors"],
+            "latency_ms_ema": PERF["latency_ms_ema"],
+            "requests_per_second": round(PERF["requests"] / uptime, 3),
+            "uptime_seconds": round(uptime, 1),
+            "note": "Telemetria medida no processo atual; performance nao representa vendas."}
 
 
 def db():
