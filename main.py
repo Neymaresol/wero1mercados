@@ -12,7 +12,7 @@ import secrets
 import html
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.9.0-BR"
+VERSION = "1.9.1-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -235,49 +235,38 @@ def health():
 def dashboard():
     return HTMLResponse("""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PARADIGMA • wero1mercados</title>
+<title>PARADIGMA WERO • Dashboard Mestre</title>
 <style>
-:root{color-scheme:dark;--bg:#020812;--panel:#071526;--line:#183b5d;--gold:#f1c75b;--green:#49f2a4;--cyan:#62d8ff;--text:#eef7ff;--muted:#89a3bb}
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% 0,#0b2742 0,#020812 45%);font-family:system-ui,-apple-system,sans-serif;color:var(--text);min-height:100vh}
-.wrap{max-width:1180px;margin:auto;padding:22px}.top{display:flex;justify-content:space-between;gap:16px;align-items:center;border-bottom:1px solid #173650;padding-bottom:16px}
-.brand{font-size:clamp(24px,5vw,48px);font-weight:900;letter-spacing:.08em;color:var(--gold)}.sub{color:var(--cyan);font-weight:700}.pill{border:1px solid var(--green);color:var(--green);padding:8px 14px;border-radius:999px;font-weight:800}
-.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:22px}.card{background:linear-gradient(145deg,#08192b,#04101e);border:1px solid var(--line);border-radius:18px;padding:18px;min-height:130px;box-shadow:0 10px 30px #0008}
-.label{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.08em}.value{font-size:clamp(28px,4vw,45px);font-weight:900;margin-top:14px}.green{color:var(--green)}.gold{color:var(--gold)}.cyan{color:var(--cyan)}
-.wide{grid-column:span 2}.footer{margin-top:18px;color:var(--muted);font-size:13px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
-@media(max-width:800px){.grid{grid-template-columns:repeat(2,1fr)}.wide{grid-column:span 2}}@media(max-width:470px){.wrap{padding:14px}.top{align-items:flex-start;flex-direction:column}.grid{grid-template-columns:1fr}.wide{grid-column:span 1}.card{min-height:110px}}
-</style></head><body><div class="wrap">
-<div class="top"><div><div class="brand">PARADIGMA</div><div class="sub">WERO1MERCADOS • LIVE</div></div><div id="prod" class="pill">● PRODUÇÃO</div></div>
-<div class="grid">
-<div class="card"><div class="label">Saúde operacional</div><div id="health" class="value green">...</div></div>
-<div class="card"><div class="label">Versão</div><div id="version" class="value cyan">...</div></div>
-<div class="card"><div class="label">Ofertas ativas</div><div id="offers" class="value gold">...</div></div>
-<div class="card"><div class="label">Cliques</div><div id="clicks" class="value cyan">...</div></div>
-<div class="card"><div class="label">Vendas confirmadas</div><div id="sales" class="value green">...</div></div>
-<div class="card"><div class="label">Produtos ativos</div><div id="products" class="value gold">...</div></div>
-<div class="card wide"><div class="label">Valor de vendas confirmadas</div><div id="salesbrl" class="value green">R$ 0,00</div></div>
-<div class="card wide"><div class="label">Comissão confirmada</div><div id="commission" class="value green">R$ 0,00</div></div>
-<div class="card"><div class="label">Comissão disponível</div><div class="value cyan">—</div><div class="label">Aguardando fonte parceira</div></div>
-<div class="card"><div class="label">Pagamento programado</div><div class="value cyan">—</div><div class="label">Aguardando fonte parceira</div></div>
-<div class="card"><div class="label">Transferido</div><div class="value green">—</div><div class="label">Somente após confirmação</div></div>
-<div class="card"><div class="label">Recebido</div><div class="value green">—</div><div class="label">Somente após confirmação</div></div>
-</div>
-<div class="footer"><span id="updated">Atualizando...</span><span>Valores financeiros somente após confirmação da fonte parceira.</span></div>
-</div><script>
+:root{color-scheme:dark;--bg:#00101e;--card:#031525;--line:#0c4f80;--blue:#0879ff;--green:#00ef8a;--gold:#f6c84c;--text:#f4f7fb;--muted:#8fa7ba}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#00101e,#020b14);font-family:Arial,system-ui,sans-serif;color:var(--text)}
+.page{max-width:760px;margin:auto;min-height:100vh;padding-bottom:40px}.header{padding:24px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #123047}
+.brand{display:flex;align-items:center;gap:18px}.crown{width:86px;height:86px;border:5px solid var(--gold);border-radius:50%;display:grid;place-items:center;color:var(--gold);font-size:42px}.brand h1{font-size:32px;letter-spacing:5px;margin:0}.brand small{letter-spacing:5px}.prod{border:1px solid #12533f;background:#06251f;border-radius:30px;padding:14px 18px;color:var(--green);font-size:20px}
+.nav,.hero,.status,.commission,.metric{margin:14px 16px;border:1px solid var(--line);border-radius:20px;background:linear-gradient(145deg,#031727,#02101c);box-shadow:inset 0 0 25px #001a2c}
+.nav{display:flex;gap:24px;padding:28px 12px;overflow:auto;align-items:center}.nav span{min-width:76px;text-align:center;font-size:29px;padding:22px 12px;border-radius:16px}.nav .on{border:1px solid var(--blue);background:#073d80;box-shadow:0 0 24px #0879ff88}
+.hero{height:230px;display:grid;place-items:center;text-align:center;background:radial-gradient(circle at 12% 45%,#113a4d 0,#04182a 32%,#02101c 70%)}.hero h2{font-size:40px;letter-spacing:6px;margin:0}.hero h2 b{color:var(--gold)}.hero h3{letter-spacing:8px}.hero p{font-size:17px}
+.status{padding:27px}.live{color:var(--green);font-size:22px;font-weight:800}.status h3{letter-spacing:4px}.muted{color:var(--muted)}
+.commission{padding:28px;text-align:center;border-color:#0a985c;background:linear-gradient(145deg,#053529,#031c1b)}.commission .label{font-size:22px;letter-spacing:4px}.commission .money{font-size:54px;font-weight:900;color:var(--green);margin:12px}.commission .muted{font-size:17px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:14px 16px}.metric{margin:0;padding:22px;min-height:205px}.metric .title{font-size:22px}.metric .value{font-size:48px;font-weight:800;margin-top:36px}.metric .value.green{color:var(--green)}.bar{height:22px;background:#062436;border-radius:20px;margin-top:25px;overflow:hidden}.bar i{display:block;height:100%;width:100%;background:var(--green);border-radius:20px}
+.fin{grid-column:span 2;min-height:auto}.finrow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:18px}.finrow div{padding:12px;border:1px solid #164262;border-radius:12px;text-align:center}.finrow b{display:block;margin-top:8px;color:var(--muted)}
+.foot{padding:12px 20px;color:var(--muted);font-size:13px}@media(max-width:560px){.crown{width:64px;height:64px;font-size:31px}.brand h1{font-size:24px}.brand small{font-size:10px}.prod{font-size:15px;padding:10px}.hero{height:205px}.hero h2{font-size:30px}.grid{gap:12px}.metric{padding:18px;min-height:180px}.metric .title{font-size:18px}.metric .value{font-size:39px}.finrow{grid-template-columns:1fr 1fr}}
+</style></head><body><main class="page">
+<header class="header"><div class="brand"><div class="crown">♛</div><div><h1>PARADIGMA</h1><small>ECOSSISTEMA WERO</small></div></div><div class="prod">● PRODUÇÃO</div></header>
+<nav class="nav"><span class="on">⌂</span><span>📡</span><span>🤖</span><span>◎</span><span>💵</span><span>📈</span></nav>
+<section class="hero"><div><h2>PARADIGMA<br><b>WERO</b></h2><h3>DASHBOARD MESTRE</h3><p>ROBÔS • VENDAS • FINANCEIRO • OPERAÇÃO GLOBAL</p></div></section>
+<section class="status"><div class="live">● WERO1MERCADOS • LIVE</div><h3>ARQUITETURA PARADIGMA</h3><div class="muted">Dados reais • atualização automática</div></section>
+<section class="commission"><div class="label">💰 WERO — COMISSÃO GERAL</div><div id="commission" class="money">R$ 0,00</div><div class="muted">Soma das comissões confirmadas pela fonte parceira</div></section>
+<section class="grid">
+<div class="metric"><div class="title">🤖 Robôs<br>Online</div><div id="robots" class="value">1 / 1</div><div class="bar"><i id="healthbar"></i></div></div>
+<div class="metric"><div class="title">🛒 Vendas<br>Confirmadas</div><div id="sales" class="value">0</div><div class="muted">Confirmadas</div></div>
+<div class="metric"><div class="title">🎯 Ofertas<br>Ativas</div><div id="offers" class="value">0</div></div>
+<div class="metric"><div class="title">👆 Cliques</div><div id="clicks" class="value">0</div></div>
+<div class="metric"><div class="title">💳 Vendas<br>Confirmadas BRL</div><div id="salesbrl" class="value green">R$ 0,00</div></div>
+<div class="metric"><div class="title">📦 Produtos<br>Ativos</div><div id="products" class="value">0</div></div>
+<div class="metric fin"><div class="title">🏦 Evolução financeira</div><div class="finrow"><div>Comissão confirmada<b id="fincommission">R$ 0,00</b></div><div>Disponível<b>—</b></div><div>Programado<b>—</b></div><div>Transferido / recebido<b>—</b></div></div><p class="muted">Campos financeiros só mudam quando houver confirmação da fonte parceira.</p></div>
+</section><div id="updated" class="foot">Atualizando...</div></main>
+<script>
 const brl=v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(v||0));
-async function refresh(){
- try{
-  const [h,c,p]=await Promise.all([fetch('/health',{cache:'no-store'}),fetch('/api/commercial',{cache:'no-store'}),fetch('/api/products?limit=500',{cache:'no-store'})]);
-  if(!h.ok||!c.ok||!p.ok) throw new Error('HTTP');
-  const H=await h.json(),C=await c.json(),P=await p.json();
-  health.textContent=(H.status==='ok'&&H.database_ok)?'ONLINE':'ATENÇÃO';
-  health.className='value '+((H.status==='ok'&&H.database_ok)?'green':'gold');
-  version.textContent=H.version||'-'; offers.textContent=C.active_offers??0; clicks.textContent=C.clicks??0;
-  sales.textContent=C.confirmed_sales??0; salesbrl.textContent=brl(C.confirmed_sales_brl); commission.textContent=brl(C.confirmed_commission_brl);
-  products.textContent=Array.isArray(P.products)?P.products.length:0;
-  updated.textContent='Última atualização: '+new Date().toLocaleString('pt-BR');
- }catch(e){health.textContent='ATENÇÃO';health.className='value gold';updated.textContent='Falha ao atualizar dados';}
-}
-refresh();setInterval(refresh,15000);
+async function refresh(){try{const [h,c,p]=await Promise.all([fetch('/health',{cache:'no-store'}),fetch('/api/commercial',{cache:'no-store'}),fetch('/api/products',{cache:'no-store'})]);if(!h.ok||!c.ok||!p.ok)throw 0;const H=await h.json(),C=await c.json(),P=await p.json();const ok=H.status==='ok'&&H.database_ok;robots.textContent=ok?'1 / 1':'0 / 1';healthbar.style.width=ok?'100%':'0%';sales.textContent=C.confirmed_sales??0;offers.textContent=C.active_offers??0;clicks.textContent=C.clicks??0;salesbrl.textContent=brl(C.confirmed_sales_brl);commission.textContent=brl(C.confirmed_commission_brl);fincommission.textContent=brl(C.confirmed_commission_brl);products.textContent=Array.isArray(P.products)?P.products.length:0;updated.textContent='Versão '+(H.version||'-')+' • última atualização '+new Date().toLocaleString('pt-BR')}catch(e){updated.textContent='Falha ao atualizar dados de produção';}}refresh();setInterval(refresh,15000);
 </script></body></html>""")
 
 
