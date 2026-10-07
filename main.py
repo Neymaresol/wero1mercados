@@ -256,6 +256,10 @@ def dashboard():
 <div class="card"><div class="label">Produtos ativos</div><div id="products" class="value gold">...</div></div>
 <div class="card wide"><div class="label">Valor de vendas confirmadas</div><div id="salesbrl" class="value green">R$ 0,00</div></div>
 <div class="card wide"><div class="label">Comissão confirmada</div><div id="commission" class="value green">R$ 0,00</div></div>
+<div class="card"><div class="label">Comissão disponível</div><div class="value cyan">—</div><div class="label">Aguardando fonte parceira</div></div>
+<div class="card"><div class="label">Pagamento programado</div><div class="value cyan">—</div><div class="label">Aguardando fonte parceira</div></div>
+<div class="card"><div class="label">Transferido</div><div class="value green">—</div><div class="label">Somente após confirmação</div></div>
+<div class="card"><div class="label">Recebido</div><div class="value green">—</div><div class="label">Somente após confirmação</div></div>
 </div>
 <div class="footer"><span id="updated">Atualizando...</span><span>Valores financeiros somente após confirmação da fonte parceira.</span></div>
 </div><script>
