@@ -13,7 +13,7 @@ import html
 import time
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.13.0-BR"
+VERSION = "1.14.0-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -651,3 +651,31 @@ def commercial():
         "confirmed_commission_brl": float(totals["commission"]),
         "financial_rule": "Somente conversoes confirmadas pela fonte parceira.",
     }
+
+
+@app.get("/api/catalog/levels")
+def catalog_levels():
+    """Operational catalog coverage. Counts inventory/offers only; never represents sales."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS c FROM products WHERE active=TRUE AND market='BR'")
+            products = cur.fetchone()["c"]
+            cur.execute("SELECT COUNT(*) AS c FROM offers WHERE active=TRUE")
+            offers = cur.fetchone()["c"]
+            cur.execute("""SELECT p.name AS partner, COUNT(DISTINCT o.product_id) AS products, COUNT(o.id) AS offers
+                           FROM partners p LEFT JOIN offers o ON o.partner_id=p.id AND o.active=TRUE
+                           WHERE p.active=TRUE GROUP BY p.id,p.name ORDER BY offers DESC,p.name""")
+            partners = cur.fetchall()
+            cur.execute("""SELECT c.slug,c.name,COUNT(DISTINCT pr.id) AS products,COUNT(o.id) AS offers
+                           FROM categories c LEFT JOIN products pr ON pr.category_id=c.id AND pr.active=TRUE
+                           LEFT JOIN offers o ON o.product_id=pr.id AND o.active=TRUE
+                           WHERE c.active=TRUE GROUP BY c.id,c.slug,c.name ORDER BY products DESC,c.name""")
+            categories = cur.fetchall()
+    if products >= 1000: level="L4_SCALE"
+    elif products >= 100: level="L3_GROWTH"
+    elif products >= 10: level="L2_CATALOG"
+    elif products >= 1: level="L1_BOOTSTRAP"
+    else: level="L0_EMPTY"
+    return {"service":SERVICE,"version":VERSION,"market":"BR","catalog_level":level,
+            "active_products":products,"active_offers":offers,"partners":partners,"categories":categories,
+            "rule":"Nivel mede cobertura de catalogo/ofertas; nao representa vendas, receita ou comissao."}
