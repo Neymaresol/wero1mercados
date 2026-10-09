@@ -1,6 +1,5 @@
 """Public catalog contract checks without production DB or secrets."""
 from unittest.mock import patch
-from fastapi.testclient import TestClient
 import main
 
 class Cursor:
@@ -21,9 +20,9 @@ class Connection:
 
 def test_catalog_only_active_authorized_and_escaped():
     with patch.object(main, "db", return_value=Connection()):
-        response = TestClient(main.app).get("/catalogo")
+        response = main.public_catalog()
     assert response.status_code == 200
-    assert 'href="/go/7?channel=catalogo"' in response.text
+    assert 'href="/go/7?channel=catalogo"' in response.body.decode('utf-8')
     assert "Oferta &lt;teste&gt;" in response.text
     assert "Oferta indisponível" not in response.text
     assert "<meta name=\"viewport\"" in response.text
