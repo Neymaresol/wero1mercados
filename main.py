@@ -15,7 +15,7 @@ import html
 import time
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.14.8-BR-rc1"
+VERSION = "1.14.9-BR-rc1"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -255,6 +255,18 @@ def seed_amazon_campaigns():
                     ON CONFLICT(product_id,partner_id,authorized_url)
                     DO UPDATE SET title=EXCLUDED.title,source_updated_at=NOW()""",
                     (partner_id,product_id,title,url))
+        # Quarantine only the known legacy Kindle placeholder URL. Never touch
+        # the seven authorized SiteStripe campaigns or historical click records.
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE offers o SET active=FALSE
+                FROM products pr, partners pa
+                WHERE o.product_id=pr.id AND o.partner_id=pa.id
+                  AND pr.sku='amazon-kindle-16gb-2024'
+                  AND pa.domain='link.amazon'
+                  AND o.authorized_url='https://link.amazon/B0cUY7dgR'
+                  AND o.active=TRUE
+            """)
         conn.commit()
 
 
