@@ -6,7 +6,7 @@ from urllib.parse import urlparse, urlencode
 
 import psycopg
 from psycopg.rows import dict_row
-from fastapi import FastAPI, HTTPException, Query, Depends
+from fastapi import FastAPI, HTTPException, Query, Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from decimal import Decimal
@@ -64,6 +64,7 @@ def db():
 def init_db():
     with db() as conn:
         with conn.cursor() as cur:
+            cur.execute("""CREATE TABLE IF NOT EXISTS catalog_visits (id BIGSERIAL PRIMARY KEY, visited_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""")
             cur.execute("""
             CREATE TABLE IF NOT EXISTS partners (
                 id BIGSERIAL PRIMARY KEY,
@@ -412,7 +413,7 @@ async function refresh(){
   // Pressure is telemetry, not financial data: baseline only indicates a healthy running service.
   const pressure=ok?Math.min(100,Math.max(0,clickDelta*12 + saleDelta*15)):0;
   setPressure('mercados',pressure); setPressure('general',pressure);
-  document.getElementById('movement').textContent=ok?('eventos registrados: '+clicks+' cliques / '+sales+' vendas confirmadas'):'telemetria indisponível';
+  document.getElementById('movement').textContent=ok?('catálogo: '+Number(C.catalog_visits||0)+' aberturas / '+clicks+' cliques / '+sales+' vendas confirmadas'):'telemetria indisponível';
   if(saleDelta>0)pulseSale(); lastClicks=clicks; lastSales=sales;
   document.getElementById('robots').textContent=ok?'1 confirmado':'0 confirmado';
   document.getElementById('sales').textContent=sales; document.getElementById('gross').textContent=brl(gross); document.getElementById('commission').textContent=brl(comm);
@@ -572,7 +573,7 @@ def register_commercial_offer(payload: OfferIn, _admin: None = Depends(require_a
 
 
 @app.get("/catalogo", response_class=HTMLResponse)
-def public_catalog():
+def public_catalog(request: Request):
     """Public storefront; only partner-authorized, active offers are displayed."""
     with db() as conn:
         with conn.cursor() as cur:
@@ -583,6 +584,12 @@ def public_catalog():
                 ORDER BY o.id DESC LIMIT 500
             """)
             rows = cur.fetchall()
+    # Count successful human-facing page requests without storing IP, cookies or user agent.
+    if request.headers.get("purpose", "").lower() != "prefetch":
+        with db() as visit_conn:
+            with visit_conn.cursor() as visit_cur:
+                visit_cur.execute("INSERT INTO catalog_visits DEFAULT VALUES")
+            visit_conn.commit()
     cards = []
     for item in rows:
         try:
@@ -757,6 +764,8 @@ def acquisition():
                            WHERE o.active=TRUE AND p.active=TRUE GROUP BY o.id
                            ORDER BY clicks DESC,o.commission_brl DESC NULLS LAST,o.id""")
             rows=cur.fetchall()
+            cur.execute("SELECT COUNT(*) AS c FROM catalog_visits")
+            catalog_visits = cur.fetchone()["c"]
             cur.execute("SELECT COUNT(*) AS c FROM clicks"); clicks=cur.fetchone()["c"]
             cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='confirmed'"); sales=cur.fetchone()["c"]
             cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='pending'"); pending=cur.fetchone()["c"]
@@ -797,6 +806,7 @@ def commercial():
         "market": "BR",
         "currency": "BRL",
         "active_offers": offers,
+        "catalog_visits": catalog_visits,
         "clicks": clicks,
         "confirmed_sales": confirmed,
         "confirmed_sales_brl": float(totals["sales"]),
