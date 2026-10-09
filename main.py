@@ -15,7 +15,7 @@ import html
 import time
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.14.4-BR"
+VERSION = "1.14.5-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -313,8 +313,7 @@ def dashboard():
 <div class="gauge card"><b>wero1ouro</b><div class="dial"><i class="needle"></i></div><div class="pressure">—</div><span class="muted">aguardando integração</span></div>
 <div class="gauge card"><b>wero1eletrico</b><div class="dial"><i class="needle"></i></div><div class="pressure">—</div><span class="muted">aguardando integração</span></div>
 </section><section id="tab-panel" class="tab-panel card" hidden><h2 id="tab-title"></h2><p id="tab-description" class="muted"></p><div class="tab-metrics" id="tab-metrics"></div><p id="tab-links"></p></section><section class="kpis"><div class="kpi card">🤖 Robôs Online<b id="robots">—</b></div><div class="kpi card">🛒 Vendas Confirmadas<b id="sales">—</b></div><div class="kpi card">💲 Valor Confirmado<b id="gross">—</b></div><div class="kpi card">％ Comissões<b id="commission" class="pink">—</b></div><div class="kpi card">🏦 Saldo na Plataforma<b>—</b><span class="muted">Aguardando fonte</span></div><div class="kpi card">↔ Transferências<b>—</b><span class="muted">Aguardando fonte</span></div></section>
-<div class="mainrow"><section class="chart card"><h3>🛒 Vendas e Comissões (Últimos 7 dias)</h3><div class="bars"><div class="bar" style="height:18%"></div><div class="bar" style="height:28%"></div><div class="bar" style="height:24%"></div><div class="bar" style="height:36%"></div><div class="bar" style="height:52%"></div><div class="bar" style="height:65%"></div><div class="bar" style="height:82%"></div></div><p class="warning">Gráfico ilustrativo até existir série histórica diária suficiente.</p></section>
-<section class="card" style="padding:16px"><h3>📈 Previsão Financeira</h3><div class="forecast"><div>7 dias<b id="f7">Aguardando dados</b></div><div>30 dias<b id="f30">Aguardando dados</b></div><div>90 dias<b id="f90">Aguardando dados</b></div><div>12 meses<b id="f365">Aguardando dados</b></div></div><p class="warning">Projeção baseada no ritmo de comissões confirmadas. Não é saldo disponível.</p></section></div>
+<div class="mainrow"><section class="chart card"><h3>🛒 Vendas e Comissões — dados confirmados</h3><p id="chart-message" class="muted">Aguardando dados comerciais confirmados.</p><p class="warning">Sem gráfico simulado. Os valores são informados pelo banco e pela integração comercial.</p></section><section class="card" style="padding:16px"><h3>📈 Previsão Financeira</h3><p class="muted">Indisponível até haver histórico suficiente de comissões confirmadas.</p><p class="warning">Nenhuma projeção artificial será exibida como receita ou saldo.</p></section></div>
 <section class="robots"><div class="robot card"><h3>🤖 wero1 operário</h3><span class="muted">Integração independente</span><div class="social">♪ ◎ f ◉</div></div><div class="robot card"><h3>🛒 wero1mercados</h3><b class="green" id="marketstatus">Verificando…</b><p>Vendas: <span id="marketsales">—</span><br>Comissão: <span id="marketcommission">—</span></p><div class="social">♪ ◎ f ◉</div></div><div class="robot card"><h3>♛ wero1ouro</h3><span class="muted">Aguardando integração</span><div class="social">♪ ◎ f ◉</div></div><div class="robot card"><h3>⚡ wero1eletrico</h3><span class="muted">Aguardando integração</span><div class="social">♪ ◎ f ◉</div></div></section>
 <section class="bottom"><div class="card"><h3>📦 Vendas por Produto</h3><p class="muted">Dados confirmados aparecerão aqui.</p></div><div class="card"><h3>🌐 Países / Top Mercado</h3><p>Brasil — mercado atual</p></div><div class="card"><h3>🌍 Operação Global</h3><p class="muted">Expansão conforme integrações reais.</p></div></section>
 </main>
@@ -352,7 +351,7 @@ function tabView(tab){
 document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{location.hash=b.dataset.tab;tabView(b.dataset.tab);window.scrollTo(0,0)}));
 window.addEventListener('hashchange',()=>tabView(location.hash.slice(1)));
 
-let lastClicks=0,lastSales=0;
+let lastClicks=null,lastSales=null;
 function setPressure(id,value){const v=Math.max(0,Math.min(100,Number(value)||0));const d=document.getElementById('dial-'+id),p=document.getElementById('p-'+id);if(d)d.style.setProperty('--p',v);if(p)p.textContent=Math.round(v)+'%';}
 function pulseSale(){const g=document.getElementById('g-general');g.classList.remove('pulse');void g.offsetWidth;g.classList.add('pulse');}
 const brl=n=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(n||0));
@@ -366,16 +365,16 @@ async function refresh(){
   document.getElementById('server').textContent=H.status==='ok'?'Online':'Falha'; document.getElementById('server').className=H.status==='ok'?'green':'pink';
   document.getElementById('marketstatus').textContent=ok?'Online':'Offline';
   const sales=Number(C.confirmed_sales||0), gross=Number(C.confirmed_sales_brl||0), comm=Number(C.confirmed_commission_brl||0), clicks=Number(C.clicks||0), offers=Number(C.active_offers||0);
-  const clickDelta=Math.max(0,clicks-lastClicks), saleDelta=Math.max(0,sales-lastSales);
+  const clickDelta=lastClicks===null?0:Math.max(0,clicks-lastClicks), saleDelta=lastSales===null?0:Math.max(0,sales-lastSales);
   // Pressure is telemetry, not financial data: baseline only indicates a healthy running service.
-  const pressure=ok?Math.min(100,8 + Math.min(35,offers*2) + Math.min(42,clickDelta*12) + Math.min(15,saleDelta*15)):0;
+  const pressure=ok?Math.min(100,Math.max(0,clickDelta*12 + saleDelta*15)):0;
   setPressure('mercados',pressure); setPressure('general',pressure);
-  document.getElementById('movement').textContent=ok?(clickDelta||saleDelta?('movimento: +'+clickDelta+' cliques / +'+saleDelta+' vendas'):'motor online • marcha lenta'):'offline';
+  document.getElementById('movement').textContent=ok?(clickDelta||saleDelta?('eventos novos: +'+clickDelta+' cliques / +'+saleDelta+' vendas'):'sem novos eventos registrados'):'offline';
   if(saleDelta>0)pulseSale(); lastClicks=clicks; lastSales=sales;
   document.getElementById('robots').textContent=ok?'1 confirmado':'0 confirmado';
   document.getElementById('sales').textContent=sales; document.getElementById('gross').textContent=brl(gross); document.getElementById('commission').textContent=brl(comm);
   document.getElementById('marketsales').textContent=sales; document.getElementById('marketcommission').textContent=brl(comm);
-  if(comm>0&&sales>0){const daily=comm; [['f7',7],['f30',30],['f90',90],['f365',365]].forEach(([id,d])=>document.getElementById(id).textContent=brl(daily*d));}
+  document.getElementById('chart-message').textContent='Vendas confirmadas: '+sales+' | Valor: '+brl(gross)+' | Comissões: '+brl(comm);
  }catch(e){document.getElementById('server').textContent='Falha de leitura';}
 }
 tabView(location.hash.slice(1)||'dashboard');refresh(); setInterval(refresh,15000);
