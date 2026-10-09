@@ -15,10 +15,13 @@ import html
 import time
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.14.2-BR"
+VERSION = "1.14.3-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
+WERO_MODE = os.getenv("WERO_MODE", "homologation").strip().lower()
+if WERO_MODE not in {"production", "homologation"}:
+    WERO_MODE = "homologation"
 
 app = FastAPI(title=SERVICE, version=VERSION)
 admin_bearer = HTTPBearer(auto_error=False)
@@ -351,7 +354,7 @@ def root():
     return {
         "service": SERVICE,
         "version": VERSION,
-        "status": "homologation",
+        "status": WERO_MODE,
         "market": "BR",
         "currency": "BRL",
         "message": "wero1mercados Brasil",
