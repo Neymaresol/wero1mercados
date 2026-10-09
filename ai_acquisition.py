@@ -42,9 +42,9 @@ def recommend_campaigns(
         if not (offer.active and offer.partner_active):
             continue
         parsed = urlparse(offer.authorized_url)
-        if parsed.scheme != "https" or not parsed.hostname:
+        if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password):
             continue
-        title = offer.title.strip()
+        title = (offer.title or "").strip()
         if not title:
             continue
         result.append(Recommendation(
