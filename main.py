@@ -24,6 +24,12 @@ if WERO_MODE not in {"production", "homologation"}:
     WERO_MODE = "homologation"
 
 app = FastAPI(title=SERVICE, version=VERSION)
+
+@app.head("/", include_in_schema=False)
+def root_head_probe():
+    """Allow harmless HEAD probes without changing the GET homepage."""
+    from fastapi import Response
+    return Response(status_code=200)
 admin_bearer = HTTPBearer(auto_error=False)
 BOOT_MONO = time.monotonic()
 PERF_MODE = os.getenv("WERO_PERFORMANCE_MODE", "game").lower()
