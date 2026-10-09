@@ -2,7 +2,7 @@ AMAZON_CURATED_CAMPAIGNS = [["amazon-fones-abertos-99528904011","Fones de Ouvido
 
 import os
 from datetime import datetime, timezone
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode
 
 import psycopg
 from psycopg.rows import dict_row
@@ -569,8 +569,7 @@ def go_offer_landing(
     validate_authorized_url(row["authorized_url"], row["domain"])
     title = html.escape(row["title"])
     partner = html.escape(row["partner_name"])
-    safe_channel = html.escape(channel, quote=True)
-    safe_campaign = html.escape(campaign, quote=True)
+    safe_query = html.escape(urlencode({"channel": channel, "campaign": campaign}), quote=True)
     return HTMLResponse(f"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title}</title></head>
@@ -579,7 +578,7 @@ def go_offer_landing(
 <p>Oferta disponível em <strong>{partner}</strong>.</p>
 <p><strong>Publicidade / link de associado.</strong> Esta oferta pode gerar comissão por compras qualificadas, conforme as regras do parceiro.</p>
 <p>Ao tocar no botão abaixo, você será direcionado para o site do parceiro {partner}. Nenhum redirecionamento acontece automaticamente.</p>
-<form method="post" action="/out/{offer_id}?channel={safe_channel}&amp;campaign={safe_campaign}">
+<form method="post" action="/out/{offer_id}?{safe_query}">
 <button type="submit" style="font-size:18px;padding:14px 20px;cursor:pointer">Ver oferta no parceiro</button>
 </form></main></body></html>""")
 
