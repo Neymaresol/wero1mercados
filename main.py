@@ -15,7 +15,7 @@ import html
 import time
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.14.7-BR"
+VERSION = "1.14.8-BR-rc1"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -426,11 +426,12 @@ def list_products(
                 SELECT pr.id, pr.sku, pr.title, pr.brand, pr.description,
                        pr.market, pr.currency, pr.source, pr.last_validated_at,
                        c.slug AS category_slug, c.name AS category_name,
-                       COUNT(po.id) FILTER (WHERE po.active=TRUE) AS active_offers,
-                       MIN(po.price_brl) FILTER (WHERE po.active=TRUE) AS best_price_brl
+                       COUNT(po.id) FILTER (WHERE po.active=TRUE AND p.active=TRUE) AS active_offers,
+                       MIN(po.price_brl) FILTER (WHERE po.active=TRUE AND p.active=TRUE) AS best_price_brl
                 FROM products pr
                 LEFT JOIN categories c ON c.id=pr.category_id
                 LEFT JOIN offers po ON po.product_id=pr.id
+                LEFT JOIN partners p ON p.id=po.partner_id
                 WHERE pr.active=TRUE
                   AND pr.market='BR'
                   AND (%s::text IS NULL OR c.slug=%s)
@@ -525,7 +526,7 @@ def register_commercial_offer(payload: OfferIn, _admin: None = Depends(require_a
                 VALUES(%s,%s,%s,%s,%s,%s,TRUE,'authorized_partner',NOW())
                 ON CONFLICT(product_id, partner_id, authorized_url)
                 DO UPDATE SET title=EXCLUDED.title, price_brl=EXCLUDED.price_brl,
-                              commission_brl=EXCLUDED.commission_brl, active=TRUE,
+                              commission_brl=EXCLUDED.commission_brl,
                               source='authorized_partner', source_updated_at=NOW()
                 RETURNING id
             """, (partner_id, product["id"], title, authorized_url,
@@ -672,7 +673,8 @@ def acquisition():
         with conn.cursor() as cur:
             cur.execute("""SELECT o.id,o.title,o.price_brl,o.commission_brl,COUNT(c.id) AS clicks
                            FROM offers o LEFT JOIN clicks c ON c.offer_id=o.id
-                           WHERE o.active=TRUE GROUP BY o.id
+                           JOIN partners p ON p.id=o.partner_id
+                           WHERE o.active=TRUE AND p.active=TRUE GROUP BY o.id
                            ORDER BY clicks DESC,o.commission_brl DESC NULLS LAST,o.id""")
             rows=cur.fetchall()
             cur.execute("SELECT COUNT(*) AS c FROM clicks"); clicks=cur.fetchone()["c"]
@@ -697,7 +699,7 @@ def acquisition():
 def commercial():
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS c FROM offers WHERE active=TRUE")
+            cur.execute("SELECT COUNT(*) AS c FROM offers o JOIN partners p ON p.id=o.partner_id WHERE o.active=TRUE AND p.active=TRUE")
             offers = cur.fetchone()["c"]
             cur.execute("SELECT COUNT(*) AS c FROM clicks")
             clicks = cur.fetchone()["c"]
