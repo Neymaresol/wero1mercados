@@ -15,7 +15,7 @@ import html
 import time
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.14.6-BR"
+VERSION = "1.14.7-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -248,12 +248,12 @@ def seed_amazon_campaigns():
                 cur.execute("""INSERT INTO products(category_id,sku,title,market,currency,active,source,last_validated_at,updated_at)
                     VALUES(%s,%s,%s,'BR','BRL',TRUE,'user_sitestripe',NOW(),NOW())
                     ON CONFLICT(sku) DO UPDATE SET title=EXCLUDED.title,category_id=EXCLUDED.category_id,
-                    active=TRUE,updated_at=NOW() RETURNING id""", (category["id"],sku,title))
+                    updated_at=NOW() RETURNING id""", (category["id"],sku,title))
                 product_id = cur.fetchone()["id"]
                 cur.execute("""INSERT INTO offers(partner_id,product_id,title,authorized_url,active,source,source_updated_at)
                     VALUES(%s,%s,%s,%s,TRUE,'user_sitestripe',NOW())
                     ON CONFLICT(product_id,partner_id,authorized_url)
-                    DO UPDATE SET active=TRUE,title=EXCLUDED.title,source_updated_at=NOW()""",
+                    DO UPDATE SET title=EXCLUDED.title,source_updated_at=NOW()""",
                     (partner_id,product_id,title,url))
         conn.commit()
 
