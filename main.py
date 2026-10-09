@@ -64,6 +64,20 @@ def db():
 def init_db():
     with db() as conn:
         with conn.cursor() as cur:
+            cur.execute("""CREATE TABLE IF NOT EXISTS premium_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                revision BIGINT NOT NULL DEFAULT 1,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )""")
+            cur.execute("""CREATE TABLE IF NOT EXISTS premium_change_log (
+                id BIGSERIAL PRIMARY KEY,
+                setting_key TEXT NOT NULL,
+                old_value TEXT,
+                new_value TEXT NOT NULL,
+                revision BIGINT NOT NULL,
+                changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )""")
             cur.execute("""CREATE TABLE IF NOT EXISTS catalog_visits (id BIGSERIAL PRIMARY KEY, visited_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""")
             cur.execute("""
             CREATE TABLE IF NOT EXISTS partners (
@@ -884,3 +898,48 @@ def ai_campaign_briefs(
         ],
         "note": "Planning only. Posting requires authorized platform API and account consent.",
     }
+
+
+# PARADIGMA PREMIUM: isolated configuration registry; never mutates active offers or sales.
+PREMIUM_ALLOWED = {
+    "campaign_priority": {"balanced", "amazon", "hotmart"},
+    "ai_review_mode": {"manual", "assisted"},
+    "campaign_publication": {"approval_required"},
+}
+
+class PremiumSettingUpdate(BaseModel):
+    value: str = Field(min_length=1, max_length=80)
+
+@app.get("/api/premium/status")
+def premium_status(_admin: None = Depends(require_admin)):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT key, value, revision, updated_at FROM premium_settings ORDER BY key")
+            settings = cur.fetchall()
+            cur.execute("SELECT id, setting_key, old_value, new_value, revision, changed_at FROM premium_change_log ORDER BY id DESC LIMIT 30")
+            history = cur.fetchall()
+    return {"service": SERVICE, "code_version": VERSION,
+            "settings": settings, "history": history,
+            "allowed_values": {k: sorted(v) for k,v in PREMIUM_ALLOWED.items()},
+            "operational_effect": "registry_only",
+            "note": "No automatic posting, AI agent activation, offer mutation, or financial confirmation."}
+
+@app.put("/api/premium/settings/{key}")
+def premium_update(key: str, payload: PremiumSettingUpdate, _admin: None = Depends(require_admin)):
+    if key not in PREMIUM_ALLOWED or payload.value not in PREMIUM_ALLOWED[key]:
+        raise HTTPException(status_code=422, detail="Setting or value not allowed")
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value, revision FROM premium_settings WHERE key=%s FOR UPDATE", (key,))
+            old = cur.fetchone()
+            revision = int(old["revision"]) + 1 if old else 1
+            cur.execute("""INSERT INTO premium_settings(key,value,revision)
+                           VALUES (%s,%s,%s)
+                           ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,
+                           revision=EXCLUDED.revision,updated_at=NOW()""",
+                        (key,payload.value,revision))
+            cur.execute("""INSERT INTO premium_change_log(setting_key,old_value,new_value,revision)
+                           VALUES (%s,%s,%s,%s)""",
+                        (key,old["value"] if old else None,payload.value,revision))
+    return {"status":"recorded","key":key,"value":payload.value,
+            "revision":revision,"operational_effect":"registry_only"}
