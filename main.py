@@ -15,7 +15,7 @@ import html
 import time
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.14.3-BR"
+VERSION = "1.14.4-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -301,10 +301,10 @@ def dashboard():
 @media(max-width:900px){.app{display:block;padding:8px}.left,.right{display:none}.hero h1{font-size:28px;letter-spacing:4px}.kpis{grid-template-columns:1fr 1fr}.mainrow{grid-template-columns:1fr}.robots{grid-template-columns:1fr 1fr}.bottom{grid-template-columns:1fr}.mobile-nav{display:flex;overflow:auto;gap:8px;padding:8px;margin-bottom:8px}.mobile-nav span{white-space:nowrap;padding:10px 14px;background:#071c31;border-radius:9px}.top{padding:4px}.brand{font-size:21px}}
 
 .pressure-title{margin:16px 0 8px;font-size:16px}.gauges{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:10px 0}.gauge{padding:14px;text-align:center;position:relative}.dial{--p:0;width:128px;height:70px;margin:8px auto 4px;overflow:hidden;position:relative}.dial:before{content:"";position:absolute;width:112px;height:112px;border-radius:50%;left:8px;top:8px;background:conic-gradient(from 270deg,#16364c 0deg,#16ee89 55deg,#ffd34f 105deg,#ff2c87 180deg,#071421 180deg);box-shadow:inset 0 0 0 13px #04111e}.needle{position:absolute;width:48px;height:3px;background:#fff;left:64px;top:62px;transform-origin:0 50%;transform:rotate(calc(-180deg + (var(--p) * 1.8deg)));transition:transform .8s cubic-bezier(.2,.8,.2,1);box-shadow:0 0 8px #fff}.needle:after{content:"";position:absolute;width:10px;height:10px;border-radius:50%;background:#fff;left:-5px;top:-4px}.pressure{font-size:22px;font-weight:900}.idle .needle{animation:idlePulse 2.2s ease-in-out infinite}@keyframes idlePulse{0%,100%{margin-top:0}50%{margin-top:-2px}}.pulse{animation:salePulse .7s ease-out}@keyframes salePulse{50%{box-shadow:0 0 28px #16ee89}}@media(max-width:900px){.gauges{grid-template-columns:1fr 1fr}.gauges .gauge:first-child{grid-column:1/-1}.dial{width:118px}}
-</style></head><body>
+.menu button,.mobile-nav button{background:#071c31;color:white;border:0;border-radius:9px;padding:13px;cursor:pointer;font:inherit;white-space:nowrap}.menu button{display:block;width:100%;margin:5px 0;text-align:left}.mobile-nav button[aria-current="page"],.menu button[aria-current="page"]{background:#075dbe;outline:2px solid #38a5ff}.tab-panel[hidden]{display:none!important}.tab-panel{padding:20px;margin:14px 0}.tab-panel a{color:#77c5ff}.tab-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.tab-metrics div{border:1px solid #145080;border-radius:9px;padding:15px}.tab-metrics b{display:block;font-size:22px;margin-top:8px}@media(max-width:900px){.mobile-nav{display:flex}}</style></head><body>
 <div class="app">
-<aside class="left panel" style="padding:18px"><div class="brand">♛ PARADIGMA<small>ECOSSISTEMA WERO</small></div><div class="menu"><div class="on">⌂ Visão Geral</div><div>🤖 Robôs</div><div>🛒 Vendas Digitais</div><div>💰 Financeiro</div><div>📈 Relatórios</div><div>🔔 Notificações</div><div>⚙ Configurações</div><div>❔ Ajuda / Suporte</div></div></aside>
-<main><div class="top"><div class="brand">PARADIGMA <span class="gold">WERO</span></div><span class="prod">● PRODUÇÃO</span></div><div class="mobile-nav"><span>⌂ Dashboard</span><span>🤖 Robôs</span><span>🛒 Vendas</span><span>💰 Financeiro</span><span>📈 Relatórios</span></div>
+<aside class="left panel" style="padding:18px"><div class="brand">♛ PARADIGMA<small>ECOSSISTEMA WERO</small></div><div class="menu"><button type="button" data-tab="dashboard">Dashboard</button><button type="button" data-tab="robots">Robôs</button><button type="button" data-tab="sales">Vendas</button><button type="button" data-tab="finance">Financeiro</button><button type="button" data-tab="reports">Relatórios</button><button type="button" data-tab="notifications">Notificações</button><button type="button" data-tab="settings">Configurações</button><button type="button" data-tab="help">Ajuda</button></div></div></aside>
+<main><div class="top"><div class="brand">PARADIGMA <span class="gold">WERO</span></div><span class="prod">● PRODUÇÃO</span></div><nav class="mobile-nav"><button type="button" data-tab="dashboard">Dashboard</button><button type="button" data-tab="robots">Robôs</button><button type="button" data-tab="sales">Vendas</button><button type="button" data-tab="finance">Financeiro</button><button type="button" data-tab="reports">Relatórios</button><button type="button" data-tab="notifications">Notificações</button><button type="button" data-tab="settings">Configurações</button><button type="button" data-tab="help">Ajuda</button></nav>
 <section class="hero panel"><h1>PARADIGMA</h1><h2>WERO</h2><p>DASHBOARD MESTRE</p><p class="muted">ROBÔS • VENDAS • FINANCEIRO • OPERAÇÃO GLOBAL</p></section>
 <h3 class="pressure-title">⚡ PRESSÃO OPERACIONAL — TEMPO REAL</h3><section class="gauges">
 <div class="gauge card" id="g-general"><b>WERO1 GERAL</b><div class="dial" id="dial-general"><i class="needle"></i></div><div class="pressure" id="p-general">0%</div><span class="muted">atividade operacional</span></div>
@@ -312,7 +312,7 @@ def dashboard():
 <div class="gauge card idle"><b>wero1mercados</b><div class="dial" id="dial-mercados"><i class="needle"></i></div><div class="pressure" id="p-mercados">0%</div><span class="muted" id="movement">aguardando eventos</span></div>
 <div class="gauge card"><b>wero1ouro</b><div class="dial"><i class="needle"></i></div><div class="pressure">—</div><span class="muted">aguardando integração</span></div>
 <div class="gauge card"><b>wero1eletrico</b><div class="dial"><i class="needle"></i></div><div class="pressure">—</div><span class="muted">aguardando integração</span></div>
-</section><section class="kpis"><div class="kpi card">🤖 Robôs Online<b id="robots">—</b></div><div class="kpi card">🛒 Vendas Confirmadas<b id="sales">—</b></div><div class="kpi card">💲 Valor Confirmado<b id="gross">—</b></div><div class="kpi card">％ Comissões<b id="commission" class="pink">—</b></div><div class="kpi card">🏦 Saldo na Plataforma<b>—</b><span class="muted">Aguardando fonte</span></div><div class="kpi card">↔ Transferências<b>—</b><span class="muted">Aguardando fonte</span></div></section>
+</section><section id="tab-panel" class="tab-panel card" hidden><h2 id="tab-title"></h2><p id="tab-description" class="muted"></p><div class="tab-metrics" id="tab-metrics"></div><p id="tab-links"></p></section><section class="kpis"><div class="kpi card">🤖 Robôs Online<b id="robots">—</b></div><div class="kpi card">🛒 Vendas Confirmadas<b id="sales">—</b></div><div class="kpi card">💲 Valor Confirmado<b id="gross">—</b></div><div class="kpi card">％ Comissões<b id="commission" class="pink">—</b></div><div class="kpi card">🏦 Saldo na Plataforma<b>—</b><span class="muted">Aguardando fonte</span></div><div class="kpi card">↔ Transferências<b>—</b><span class="muted">Aguardando fonte</span></div></section>
 <div class="mainrow"><section class="chart card"><h3>🛒 Vendas e Comissões (Últimos 7 dias)</h3><div class="bars"><div class="bar" style="height:18%"></div><div class="bar" style="height:28%"></div><div class="bar" style="height:24%"></div><div class="bar" style="height:36%"></div><div class="bar" style="height:52%"></div><div class="bar" style="height:65%"></div><div class="bar" style="height:82%"></div></div><p class="warning">Gráfico ilustrativo até existir série histórica diária suficiente.</p></section>
 <section class="card" style="padding:16px"><h3>📈 Previsão Financeira</h3><div class="forecast"><div>7 dias<b id="f7">Aguardando dados</b></div><div>30 dias<b id="f30">Aguardando dados</b></div><div>90 dias<b id="f90">Aguardando dados</b></div><div>12 meses<b id="f365">Aguardando dados</b></div></div><p class="warning">Projeção baseada no ritmo de comissões confirmadas. Não é saldo disponível.</p></section></div>
 <section class="robots"><div class="robot card"><h3>🤖 wero1 operário</h3><span class="muted">Integração independente</span><div class="social">♪ ◎ f ◉</div></div><div class="robot card"><h3>🛒 wero1mercados</h3><b class="green" id="marketstatus">Verificando…</b><p>Vendas: <span id="marketsales">—</span><br>Comissão: <span id="marketcommission">—</span></p><div class="social">♪ ◎ f ◉</div></div><div class="robot card"><h3>♛ wero1ouro</h3><span class="muted">Aguardando integração</span><div class="social">♪ ◎ f ◉</div></div><div class="robot card"><h3>⚡ wero1eletrico</h3><span class="muted">Aguardando integração</span><div class="social">♪ ◎ f ◉</div></div></section>
@@ -321,6 +321,37 @@ def dashboard():
 <aside class="right"><div class="card"><h3>💚 Status do Sistema</h3><div class="statusline"><span>Banco de Dados</span><b id="dbs">Verificando</b></div><div class="statusline"><span>Servidor</span><b id="server">Verificando</b></div><div class="statusline"><span>Dashboard</span><b class="green">Online</b></div></div><div class="card"><h3>🔔 Últimas Notificações</h3><div class="notice">Dashboard PARADIGMA iniciado</div><div class="notice">Aguardando vendas confirmadas</div></div><div class="card"><h3>☑ Próximas Ações</h3><div class="notice">Monitorar novas vendas</div><div class="notice">Acompanhar comissões</div><div class="notice">Integrar demais robôs</div></div></aside>
 </div>
 <script>
+
+let snapshot={};
+const tabTitles={dashboard:'Visão Geral',robots:'Robôs',sales:'Vendas Digitais',finance:'Financeiro',reports:'Relatórios',notifications:'Notificações',settings:'Configurações',help:'Ajuda e Suporte'};
+const brlSafe=n=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(n||0));
+function tabView(tab){
+ if(!tabTitles[tab])tab='dashboard';
+ document.querySelectorAll('[data-tab]').forEach(b=>b.setAttribute('aria-current',b.dataset.tab===tab?'page':'false'));
+ const panel=document.getElementById('tab-panel');panel.hidden=tab==='dashboard';
+ document.querySelectorAll('.hero,.pressure-title,.gauges,.kpis,.mainrow,.robots,.bottom').forEach(e=>e.hidden=tab!=='dashboard');
+ if(tab==='dashboard')return;
+ document.getElementById('tab-title').textContent=tabTitles[tab];
+ document.getElementById('tab-description').textContent='Indicadores confirmados e integrações conhecidas. Dados atualizados a cada 15 segundos.';
+ const C=snapshot.c||{},H=snapshot.h||{},ok=H.status==='ok'&&H.database_ok===true;
+ const data={
+ robots:[['wero1mercados',ok?'Online':'Não confirmado'],['wero1-operario','Telemetria externa pendente'],['wero1ouro','Integração pendente'],['wero1eletrico','Integração pendente']],
+ sales:[['Ofertas ativas',C.active_offers],['Cliques internos',C.clicks],['Vendas confirmadas',C.confirmed_sales],['Valor confirmado',brlSafe(C.confirmed_sales_brl)]],
+ finance:[['Valor confirmado',brlSafe(C.confirmed_sales_brl)],['Comissões confirmadas',brlSafe(C.confirmed_commission_brl)],['Saldo disponível','Fonte pendente'],['Transferências','Fonte pendente']],
+ reports:[['Ofertas ativas',C.active_offers],['Cliques internos',C.clicks],['Vendas confirmadas',C.confirmed_sales],['Comissões',brlSafe(C.confirmed_commission_brl)]],
+ notifications:[['Servidor',ok?'Saudável':'Não confirmado'],['Vendas',Number(C.confirmed_sales||0)?'Há conversões':'Aguardando confirmação']],
+ settings:[['Versão',H.version],['Banco PostgreSQL',H.database_ok===true?'Conectado':'Não confirmado'],['Mercado',H.market]],
+ help:[['Health',ok?'OK':'Não confirmado'],['Dados','Wero1 / PostgreSQL']]
+ };
+ const area=document.getElementById('tab-metrics');area.replaceChildren();
+ (data[tab]||[]).forEach(([label,value])=>{const d=document.createElement('div'),a=document.createElement('span'),b=document.createElement('b');a.textContent=label;b.textContent=value===undefined?'—':String(value);d.append(a,b);area.append(d)});
+ const links=document.getElementById('tab-links');links.replaceChildren();
+ const urls=tab==='help'||tab==='settings'?[['Health','/health'],['Comercial','/api/commercial']]:tab==='sales'?[['Ofertas','/api/offers']]:tab==='reports'?[['Relatório comercial','/api/commercial']]:[];
+ urls.forEach(([label,url],i)=>{if(i)links.append(' · ');const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener';a.textContent=label;links.append(a)});
+}
+document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{location.hash=b.dataset.tab;tabView(b.dataset.tab);window.scrollTo(0,0)}));
+window.addEventListener('hashchange',()=>tabView(location.hash.slice(1)));
+
 let lastClicks=0,lastSales=0;
 function setPressure(id,value){const v=Math.max(0,Math.min(100,Number(value)||0));const d=document.getElementById('dial-'+id),p=document.getElementById('p-'+id);if(d)d.style.setProperty('--p',v);if(p)p.textContent=Math.round(v)+'%';}
 function pulseSale(){const g=document.getElementById('g-general');g.classList.remove('pulse');void g.offsetWidth;g.classList.add('pulse');}
@@ -329,7 +360,8 @@ async function refresh(){
  try{
   const [h,c,p]=await Promise.all([fetch('/health'),fetch('/api/commercial'),fetch('/api/products?limit=500')]);
   const H=await h.json(), C=await c.json(), P=await p.json();
-  const ok=H.status==='ok'&&H.database_ok===true;
+  snapshot={h:H,c:C};tabView(location.hash.slice(1)||'dashboard');
+   const ok=H.status==='ok'&&H.database_ok===true;
   document.getElementById('dbs').textContent=ok?'Online':'Falha'; document.getElementById('dbs').className=ok?'green':'pink';
   document.getElementById('server').textContent=H.status==='ok'?'Online':'Falha'; document.getElementById('server').className=H.status==='ok'?'green':'pink';
   document.getElementById('marketstatus').textContent=ok?'Online':'Offline';
@@ -346,7 +378,7 @@ async function refresh(){
   if(comm>0&&sales>0){const daily=comm; [['f7',7],['f30',30],['f90',90],['f365',365]].forEach(([id,d])=>document.getElementById(id).textContent=brl(daily*d));}
  }catch(e){document.getElementById('server').textContent='Falha de leitura';}
 }
-refresh(); setInterval(refresh,15000);
+tabView(location.hash.slice(1)||'dashboard');refresh(); setInterval(refresh,15000);
 </script></body></html>"""
 
 @app.get("/")
