@@ -786,3 +786,44 @@ def catalog_levels():
     return {"service":SERVICE,"version":VERSION,"market":"BR","catalog_level":level,
             "active_products":products,"active_offers":offers,"partners":partners,"categories":categories,
             "rule":"Nivel mede cobertura de catalogo/ofertas; nao representa vendas, receita ou comissao."}
+
+
+@app.get("/api/ai/campaign-briefs")
+def ai_campaign_briefs(
+    channel: str = Query(default="instagram"),
+    limit: int = Query(default=12, ge=1, le=100),
+    _admin: None = Depends(require_admin),
+):
+    """Read-only campaign briefs. No customer scraping or automated publication."""
+    from ai_acquisition import Campaign, recommend_campaigns, ALLOWED_CHANNELS
+    if channel not in ALLOWED_CHANNELS:
+        raise HTTPException(status_code=422, detail="Unsupported channel")
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT o.id, o.title, o.authorized_url, o.active,
+                       p.active AS partner_active
+                FROM offers o JOIN partners p ON p.id=o.partner_id
+                WHERE o.active=TRUE AND p.active=TRUE
+                ORDER BY o.id
+            """)
+            offers = cur.fetchall()
+    candidates = [
+        Campaign(int(o["id"]), o["title"], o["authorized_url"],
+                 bool(o["active"]), bool(o["partner_active"]))
+        for o in offers
+    ]
+    briefs = recommend_campaigns(candidates, channel, limit=limit)
+    return {
+        "service": SERVICE, "version": VERSION,
+        "channel": channel, "publication_status": "NOT_CONNECTED",
+        "requires_approval": True,
+        "generated_count": len(briefs),
+        "briefs": [
+            {"offer_id": b.offer_id, "channel": b.channel, "angle": b.angle,
+             "disclosure": b.disclosure, "requires_approval": b.requires_approval,
+             "tracked_url": f"/go/{b.offer_id}?channel={channel}&campaign=wero-ai-brief"}
+            for b in briefs
+        ],
+        "note": "Planning only. Posting requires authorized platform API and account consent.",
+    }
