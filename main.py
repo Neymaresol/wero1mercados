@@ -263,7 +263,7 @@ def seed_amazon_campaigns():
                 FROM products pr, partners pa
                 WHERE o.product_id=pr.id AND o.partner_id=pa.id
                   AND pr.sku='amazon-kindle-16gb-2024'
-                  AND pa.domain='amazon.com.br'
+                  AND pa.domain='link.amazon'
                   AND o.authorized_url='https://link.amazon/B0cUY7dgR'
                   AND o.active=TRUE
             """)
