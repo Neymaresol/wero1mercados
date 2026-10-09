@@ -506,10 +506,10 @@ def go_offer_landing(
 <body style="font-family:system-ui;max-width:680px;margin:40px auto;padding:0 20px;line-height:1.5">
 <main><h1>{title}</h1>
 <p>Oferta disponível em <strong>{partner}</strong>.</p>
-<p><strong>Publicidade / link de associado.</strong> Como associado da Amazon, eu ganho com compras qualificadas.</p>
-<p>Ao tocar no botão abaixo, você será direcionado para um site da Amazon. Nenhum redirecionamento acontece automaticamente.</p>
+<p><strong>Publicidade / link de associado.</strong> Esta oferta pode gerar comissão por compras qualificadas, conforme as regras do parceiro.</p>
+<p>Ao tocar no botão abaixo, você será direcionado para o site do parceiro {partner}. Nenhum redirecionamento acontece automaticamente.</p>
 <form method="post" action="/out/{offer_id}?channel={safe_channel}&amp;campaign={safe_campaign}">
-<button type="submit" style="font-size:18px;padding:14px 20px;cursor:pointer">Comprar na Amazon</button>
+<button type="submit" style="font-size:18px;padding:14px 20px;cursor:pointer">Ver oferta no parceiro</button>
 </form></main></body></html>""")
 
 
