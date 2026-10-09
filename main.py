@@ -943,3 +943,43 @@ def premium_update(key: str, payload: PremiumSettingUpdate, _admin: None = Depen
                         (key,old["value"] if old else None,payload.value,revision))
     return {"status":"recorded","key":key,"value":payload.value,
             "revision":revision,"operational_effect":"registry_only"}
+
+
+@app.get("/api/premium/ai-ranking")
+def premium_ai_ranking(
+    limit: int = Query(default=12, ge=1, le=100),
+    _admin: None = Depends(require_admin),
+):
+    """Safe read-only ranking using confirmed local click events, never fake conversions."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT key,value FROM premium_settings WHERE key IN ('campaign_priority','ai_review_mode')")
+            settings = {r["key"]: r["value"] for r in cur.fetchall()}
+            cur.execute("""
+                SELECT o.id AS offer_id, o.title, p.name AS partner,
+                       COUNT(c.id) AS tracked_clicks,
+                       COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') AS clicks_7d
+                FROM offers o
+                JOIN partners p ON p.id=o.partner_id
+                LEFT JOIN clicks c ON c.offer_id=o.id
+                WHERE o.active=TRUE AND p.active=TRUE
+                GROUP BY o.id,o.title,p.name
+                ORDER BY clicks_7d DESC, tracked_clicks DESC, o.id ASC
+                LIMIT %s
+            """, (limit,))
+            offers = cur.fetchall()
+    priority = settings.get("campaign_priority", "balanced")
+    # Preference only breaks ties; never suppresses an authorized offer.
+    def rank(item):
+        preferred = priority != "balanced" and priority in item["partner"].lower()
+        return (-int(item["clicks_7d"]), -int(item["tracked_clicks"]), -int(preferred), int(item["offer_id"]))
+    offers.sort(key=rank)
+    return {
+        "service": SERVICE, "version": VERSION,
+        "mode": "read_only", "priority": priority,
+        "ai_review_mode": settings.get("ai_review_mode", "manual"),
+        "ranking_basis": "real tracked outbound clicks; no predicted or invented sales",
+        "publication_status": "NOT_CONNECTED",
+        "offers": offers,
+        "note": "Advisory ranking only; no posting, offer changes, or automated purchases.",
+    }
