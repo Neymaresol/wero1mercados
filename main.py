@@ -790,6 +790,8 @@ def commercial():
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) AS c FROM offers o JOIN partners p ON p.id=o.partner_id WHERE o.active=TRUE AND p.active=TRUE")
             offers = cur.fetchone()["c"]
+            cur.execute("SELECT COUNT(*) AS c FROM catalog_visits")
+            catalog_visits = cur.fetchone()["c"]
             cur.execute("SELECT COUNT(*) AS c FROM clicks")
             clicks = cur.fetchone()["c"]
             cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='confirmed'")
