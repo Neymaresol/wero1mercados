@@ -1,3 +1,5 @@
+AMAZON_CURATED_CAMPAIGNS = [["amazon-fones-abertos-99528904011","Fones de Ouvido Abertos","eletronicos-celulares","https://www.amazon.com.br/Fones-Ouvido-Abertos/b?ie=UTF8&node=99528904011&linkCode=ll2&tag=wero1mercados-20&linkId=28a1e4536793e6973267534d85c628d3&ref_=as_li_ss_tl"],["amazon-mais-vendidos-eletronicos","Mais Vendidos em Eletrônicos","eletronicos-celulares","https://www.amazon.com.br/gp/bestsellers/electronics?ie=UTF8&linkCode=ll2&tag=wero1mercados-20&linkId=815660c212dde378628806512caafb69&ref_=as_li_ss_tl"],["amazon-eletronicos-oferta-17368183011","Eletrônicos em Oferta","eletronicos-celulares","https://www.amazon.com.br/eletronicos-em-oferta/b?ie=UTF8&node=17368183011&linkCode=ll2&tag=wero1mercados-20&linkId=669d1854d248393bec15702d5a3d54e2&ref_=as_li_ss_tl"],["amazon-informatica-16339926011","Computadores e Informática","informatica","https://www.amazon.com.br/Computadores-Informatica/b?ie=UTF8&node=16339926011&linkCode=ll2&tag=wero1mercados-20&linkId=614d91379af7ccf5efccff4c860e310f&ref_=as_li_ss_tl"]]
+
 import os
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -13,7 +15,7 @@ import html
 import time
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.14.0-BR"
+VERSION = "1.14.1-BR"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -227,9 +229,36 @@ def init_db():
         # commit here makes startup schema/data migrations unambiguous.
         conn.commit()
 
+def seed_amazon_campaigns():
+    """Idempotent publication of user-supplied SiteStripe category links."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO partners(name,domain,active) VALUES('Amazon Brasil','amazon.com.br',TRUE)
+                ON CONFLICT(domain) DO UPDATE SET active=TRUE RETURNING id""")
+            partner_id = cur.fetchone()["id"]
+            for sku, title, category_slug, url in AMAZON_CURATED_CAMPAIGNS:
+                validate_authorized_url(url, "amazon.com.br")
+                cur.execute("SELECT id FROM categories WHERE slug=%s AND active=TRUE", (category_slug,))
+                category = cur.fetchone()
+                if not category:
+                    raise RuntimeError("Categoria Amazon indisponivel: " + category_slug)
+                cur.execute("""INSERT INTO products(category_id,sku,title,market,currency,active,source,last_validated_at,updated_at)
+                    VALUES(%s,%s,%s,'BR','BRL',TRUE,'user_sitestripe',NOW(),NOW())
+                    ON CONFLICT(sku) DO UPDATE SET title=EXCLUDED.title,category_id=EXCLUDED.category_id,
+                    active=TRUE,updated_at=NOW() RETURNING id""", (category["id"],sku,title))
+                product_id = cur.fetchone()["id"]
+                cur.execute("""INSERT INTO offers(partner_id,product_id,title,authorized_url,active,source,source_updated_at)
+                    VALUES(%s,%s,%s,%s,TRUE,'user_sitestripe',NOW())
+                    ON CONFLICT(product_id,partner_id,authorized_url)
+                    DO UPDATE SET active=TRUE,title=EXCLUDED.title,source_updated_at=NOW()""",
+                    (partner_id,product_id,title,url))
+        conn.commit()
+
+
 @app.on_event("startup")
 def startup():
     init_db()
+    seed_amazon_campaigns()
 
 
 def now_iso():
