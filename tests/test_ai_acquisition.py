@@ -16,6 +16,17 @@ class AcquisitionTests(unittest.TestCase):
         self.assertTrue(result[0].requires_approval)
         self.assertIn("Publicidade", result[0].disclosure)
 
+    def test_reject_credentials_and_missing_titles(self):
+        offers = [
+            Campaign(1, "Secret", "https://user:pass@example.com/path", True, True),
+            Campaign(2, None, "https://example.com/path", True, True),
+            Campaign(3, "Valid", "https://example.com/path", True, True),
+        ]
+        self.assertEqual(
+            [item.offer_id for item in recommend_campaigns(offers, "facebook")],
+            [3],
+        )
+
     def test_channel_allowlist(self):
         with self.assertRaises(ValueError):
             recommend_campaigns([], "email-spam")
