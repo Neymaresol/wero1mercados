@@ -15,7 +15,7 @@ import html
 import time
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-VERSION = "1.14.14-BR-rc1"
+VERSION = "1.14.15-BR-rc1"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
@@ -327,6 +327,7 @@ def dashboard():
 </section><section id="tab-panel" class="tab-panel card" hidden><h2 id="tab-title"></h2><p id="tab-description" class="muted"></p><div class="tab-metrics" id="tab-metrics"></div><p id="tab-links"></p></section><section class="kpis"><div class="kpi card">🤖 Robôs Online<b id="robots">—</b></div><div class="kpi card">🛒 Vendas Confirmadas<b id="sales">—</b></div><div class="kpi card">💲 Valor Confirmado<b id="gross">—</b></div><div class="kpi card">％ Comissões<b id="commission" class="pink">—</b></div><div class="kpi card">🏦 Saldo na Plataforma<b>—</b><span class="muted">Aguardando fonte</span></div><div class="kpi card">↔ Transferências<b>—</b><span class="muted">Aguardando fonte</span></div></section>
 <div class="mainrow"><section class="chart card"><h3>🛒 Vendas e Comissões — dados confirmados</h3><p id="chart-message" class="muted">Aguardando dados comerciais confirmados.</p><p class="warning">Sem gráfico simulado. Os valores são informados pelo banco e pela integração comercial.</p></section><section class="card" style="padding:16px"><h3>📈 Previsão Financeira</h3><p class="muted">Indisponível até haver histórico suficiente de comissões confirmadas.</p><p class="warning">Nenhuma projeção artificial será exibida como receita ou saldo.</p></section></div>
 <section class="robots"><div class="robot card"><h3>🤖 wero1 operário</h3><span class="muted">Integração independente</span><div class="social">♪ ◎ f ◉</div></div><div class="robot card"><h3>🛒 wero1mercados</h3><b class="green" id="marketstatus">Verificando…</b><p>Vendas: <span id="marketsales">—</span><br>Comissão: <span id="marketcommission">—</span></p><div class="social">♪ ◎ f ◉</div></div><div class="robot card"><h3>♛ wero1ouro</h3><span class="muted">Aguardando integração</span><div class="social">♪ ◎ f ◉</div></div><div class="robot card"><h3>⚡ wero1eletrico</h3><span class="muted">Aguardando integração</span><div class="social">♪ ◎ f ◉</div></div></section>
+<section class="card" id="campaigns-panel" style="padding:18px;margin:14px 0"><h3>🛒 Campanhas Amazon — <span id="campaign-active">—</span> ativas / <span id="campaign-total">—</span> cadastradas</h3><p class="muted" id="campaign-updated">Atualizando a partir do catálogo real...</p><div id="campaign-list" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px" aria-live="polite"></div></section>
 <section class="bottom"><div class="card"><h3>📦 Vendas por Produto</h3><p class="muted">Dados confirmados aparecerão aqui.</p></div><div class="card"><h3>🌐 Países / Top Mercado</h3><p>Brasil — mercado atual</p></div><div class="card"><h3>🌍 Operação Global</h3><p class="muted">Expansão conforme integrações reais.</p></div></section>
 </main>
 <aside class="right"><div class="card"><h3>💚 Status do Sistema</h3><div class="statusline"><span>Banco de Dados</span><b id="dbs">Verificando</b></div><div class="statusline"><span>Servidor</span><b id="server">Verificando</b></div><div class="statusline"><span>Dashboard</span><b class="green">Online</b></div></div><div class="card"><h3>🔔 Últimas Notificações</h3><div class="notice">Dashboard PARADIGMA iniciado</div><div class="notice">Aguardando vendas confirmadas</div></div><div class="card"><h3>☑ Próximas Ações</h3><div class="notice">Monitorar novas vendas</div><div class="notice">Acompanhar comissões</div><div class="notice">Integrar demais robôs</div></div></aside>
@@ -374,6 +375,29 @@ function setPressure(id,value){
 }
 function pulseSale(){const g=document.getElementById('g-general');g.classList.remove('pulse');void g.offsetWidth;g.classList.add('pulse');}
 const brl=n=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(n||0));
+async function refreshCampaigns(){
+ const container=document.getElementById('campaign-list');
+ try{
+  const response=await fetch('/api/offers',{cache:'no-store'});
+  if(!response.ok)throw new Error('HTTP '+response.status);
+  const payload=await response.json();
+  if(!Array.isArray(payload.offers))throw new Error('Resposta inválida');
+  const offers=payload.offers.filter(o=>o.partner_name==='Amazon Brasil');
+  const active=offers.filter(o=>o.active===true);
+  document.getElementById('campaign-active').textContent=String(active.length);
+  document.getElementById('campaign-total').textContent=String(offers.length);
+  document.getElementById('campaign-updated').textContent='Fonte: /api/offers · Atualização automática a cada 15 segundos · '+new Date().toLocaleTimeString('pt-BR');
+  container.replaceChildren();
+  offers.sort((a,b)=>Number(b.active)-Number(a.active)||Number(b.id)-Number(a.id)).forEach(o=>{
+   const card=document.createElement('div');card.style.cssText='padding:12px;border:1px solid #21486b;border-radius:10px;background:#071b30';
+   const heading=document.createElement('strong');heading.textContent=o.title||'Campanha sem nome';
+   const info=document.createElement('div');info.style.cssText='font-size:12px;color:#b9cde2;margin-top:8px';info.textContent='ID '+o.id+' · '+(o.partner_name||'Amazon')+' · '+(o.active?'ATIVA':'INATIVA');
+   const badge=document.createElement('span');badge.style.cssText='display:inline-block;margin-top:8px;font-weight:bold;color:'+(o.active?'#16ee89':'#ffc83d');badge.textContent=o.active?'● Em operação':'● Desativada';
+   card.append(heading,info,badge);container.append(card);
+  });
+  if(!offers.length){const empty=document.createElement('p');empty.textContent='Nenhuma campanha Amazon cadastrada.';container.append(empty);}
+ }catch(err){document.getElementById('campaign-updated').textContent='Falha ao consultar campanhas: '+err.message+' · Mantendo dados anteriores';}
+}
 async function refresh(){
  try{
   const [h,c,p]=await Promise.all([fetch('/health'),fetch('/api/commercial'),fetch('/api/products?limit=500')]);
@@ -396,7 +420,7 @@ async function refresh(){
   document.getElementById('chart-message').textContent='Vendas confirmadas: '+sales+' | Valor: '+brl(gross)+' | Comissões: '+brl(comm);
  }catch(e){document.getElementById('server').textContent='Falha de leitura';}
 }
-tabView(location.hash.slice(1)||'dashboard');refresh(); setInterval(refresh,15000);
+tabView(location.hash.slice(1)||'dashboard');refresh();refreshCampaigns(); setInterval(refresh,15000);setInterval(refreshCampaigns,15000);
 </script></body></html>"""
 
 @app.get("/")
