@@ -571,6 +571,51 @@ def register_commercial_offer(payload: OfferIn, _admin: None = Depends(require_a
     return {"status": "registered", "offer_id": offer_id, "financial_rule": "Valores comerciais nao contam como venda ate conversao confirmada pela fonte parceira."}
 
 
+@app.get("/catalogo", response_class=HTMLResponse)
+def public_catalog():
+    """Public storefront; only partner-authorized, active offers are displayed."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT o.id, o.title, o.authorized_url, p.name AS partner_name, p.domain
+                FROM offers o JOIN partners p ON p.id=o.partner_id
+                WHERE o.active=TRUE AND p.active=TRUE
+                ORDER BY o.id DESC LIMIT 500
+            """)
+            rows = cur.fetchall()
+    cards = []
+    for item in rows:
+        try:
+            validate_authorized_url(item["authorized_url"], item["domain"])
+        except (HTTPException, ValueError):
+            continue
+        title = html.escape(str(item["title"]), quote=True)
+        partner = html.escape(str(item["partner_name"]), quote=True)
+        offer_id = int(item["id"])
+        cards.append(
+            '<article class="card"><h2>' + title + '</h2><p>Parceiro: ' + partner
+            + '</p><a class="button" href="/go/' + str(offer_id)
+            + '?channel=catalogo">Ver oferta</a></article>'
+        )
+    body = "".join(cards) if cards else '<p>Nenhuma oferta autorizada disponível no momento.</p>'
+    return HTMLResponse("""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="index,follow">
+<title>Catálogo Wero1Mercados</title>
+<style>body{font:16px system-ui,sans-serif;margin:0;background:#f6f7fb;color:#17202a}
+main{max-width:1000px;margin:auto;padding:28px 18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.card{background:white;border:1px solid #dfe3e8;border-radius:14px;padding:20px}
+.card h2{font-size:1.15rem}.button{display:inline-block;background:#174fa3;color:white;
+text-decoration:none;padding:12px 16px;border-radius:8px}
+a:focus-visible{outline:3px solid orange}footer{margin-top:24px;color:#555}</style>
+</head><body><main><h1>Ofertas Wero1Mercados</h1>
+<p>Escolha uma oferta e confirme o acesso ao site do parceiro.</p>
+<section class="grid">""" + body + """</section>
+<footer>Publicidade: podemos receber comissão por compras qualificadas.
+Preços e disponibilidade são definidos pelo parceiro.</footer></main></body></html>""")
+
+
 @app.get("/api/offers")
 def list_offers():
     with db() as conn:
