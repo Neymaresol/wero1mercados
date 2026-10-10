@@ -228,6 +228,15 @@ def init_db():
             ON offers(product_id, partner_id, authorized_url)
             """)
             cur.execute("""
+            CREATE TABLE IF NOT EXISTS offer_landing_visits (
+                id BIGSERIAL PRIMARY KEY,
+                offer_id BIGINT NOT NULL REFERENCES offers(id),
+                channel TEXT NOT NULL DEFAULT 'direct',
+                campaign TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """)
+            cur.execute("""
             CREATE TABLE IF NOT EXISTS clicks (
                 id BIGSERIAL PRIMARY KEY,
                 offer_id BIGINT NOT NULL REFERENCES offers(id),
@@ -675,6 +684,13 @@ def go_offer_landing(
     if not row or not row["active"] or not row["partner_active"]:
         raise HTTPException(status_code=404, detail="Oferta indisponivel")
     validate_authorized_url(row["authorized_url"], row["domain"])
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO offer_landing_visits(offer_id,channel,campaign) VALUES(%s,%s,%s)",
+                (offer_id, channel, campaign),
+            )
+        conn.commit()
     title = html.escape(row["title"])
     partner = html.escape(row["partner_name"])
     safe_query = html.escape(urlencode({"channel": channel, "campaign": campaign}), quote=True)
@@ -786,6 +802,7 @@ def acquisition():
             rows=cur.fetchall()
             cur.execute("SELECT COUNT(*) AS c FROM catalog_visits")
             catalog_visits = cur.fetchone()["c"]
+            cur.execute("SELECT COUNT(*) AS c FROM offer_landing_visits"); landing_visits=cur.fetchone()["c"]
             cur.execute("SELECT COUNT(*) AS c FROM clicks"); clicks=cur.fetchone()["c"]
             cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='confirmed'"); sales=cur.fetchone()["c"]
             cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='pending'"); pending=cur.fetchone()["c"]
