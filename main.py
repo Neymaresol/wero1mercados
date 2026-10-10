@@ -816,7 +816,7 @@ def acquisition():
             "objective":"FIRST_CONFIRMED_SALE" if sales==0 else "SCALE_CONFIRMED_SALES"}
            for n,r in enumerate(rows)]
     return {"engine":"wero-acquisition","service":SERVICE,"version":VERSION,"bottleneck":bottleneck,
-            "next_action":next_action,"active_offers":len(rows),"tracked_clicks":clicks,
+            "next_action":next_action,"active_offers":len(rows),"landing_visits":landing_visits,"tracked_clicks":clicks,
             "pending_conversions":pending,"confirmed_sales":sales,"campaign_queue":queue,
             "rule":"Somente conversoes reais confirmadas pela fonte parceira contam como vendas."}
 
@@ -831,6 +831,8 @@ def commercial():
             catalog_visits = cur.fetchone()["c"]
             cur.execute("SELECT COUNT(*) AS c FROM clicks")
             clicks = cur.fetchone()["c"]
+            cur.execute("SELECT COUNT(*) AS c FROM offer_landing_visits")
+            landing_visits = cur.fetchone()["c"]
             cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='confirmed'")
             confirmed = cur.fetchone()["c"]
             cur.execute("""
@@ -846,6 +848,7 @@ def commercial():
         "currency": "BRL",
         "active_offers": offers,
         "catalog_visits": catalog_visits,
+        "landing_visits": landing_visits,
         "clicks": clicks,
         "confirmed_sales": confirmed,
         "confirmed_sales_brl": float(totals["sales"]),
