@@ -696,15 +696,26 @@ def go_offer_landing(
     safe_query = html.escape(urlencode({"channel": channel, "campaign": campaign}), quote=True)
     return HTMLResponse(f"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{title}</title></head>
-<body style="font-family:system-ui;max-width:680px;margin:40px auto;padding:0 20px;line-height:1.5">
-<main><h1>{title}</h1>
-<p>Oferta disponível em <strong>{partner}</strong>.</p>
-<p><strong>Publicidade / link de associado.</strong> Esta oferta pode gerar comissão por compras qualificadas, conforme as regras do parceiro.</p>
-<p>Ao tocar no botão abaixo, você será direcionado para o site do parceiro {partner}. Nenhum redirecionamento acontece automaticamente.</p>
+<meta name="robots" content="noindex"><title>{title} | Wero1Mercados</title>
+<style>
+*{{box-sizing:border-box}}body{{margin:0;background:#f5f7fb;color:#172033;font:16px system-ui,-apple-system,Segoe UI,sans-serif}}
+header{{background:#102d50;color:white;padding:16px 20px;font-weight:800;letter-spacing:.5px}}
+main{{max-width:680px;margin:32px auto;padding:28px;background:white;border-radius:18px;box-shadow:0 12px 36px #102d5014}}
+.tag{{display:inline-block;background:#e9f3ff;color:#1453a2;padding:7px 12px;border-radius:20px;font-size:13px;font-weight:700}}
+h1{{font-size:clamp(26px,5vw,38px);line-height:1.18;margin:20px 0}}p{{line-height:1.6}}
+.partner{{padding:14px 16px;background:#f2f6fa;border-radius:12px;margin:22px 0}}
+button{{display:block;width:100%;border:0;border-radius:12px;padding:19px 16px;background:#0967d2;color:white;font-size:19px;font-weight:800;cursor:pointer}}
+button:focus-visible{{outline:3px solid #ffbd4a;outline-offset:3px}}button:hover{{background:#0753aa}}
+small{{display:block;color:#536172;line-height:1.6;margin-top:18px}}
+@media(max-width:720px){{main{{margin:14px;padding:22px}}}}
+</style></head><body><header>Wero1Mercados · Brasil</header>
+<main><span class="tag">Oferta de parceiro</span><h1>{title}</h1>
+<p>Conheça esta oferta no site do parceiro e confira preço, disponibilidade, entrega e condições atualizadas antes de comprar.</p>
+<div class="partner"><strong>Loja parceira:</strong> {partner}</div>
 <form method="post" action="/out/{offer_id}?{safe_query}">
-<button type="submit" style="font-size:18px;padding:14px 20px;cursor:pointer">Ver oferta no parceiro</button>
-</form></main></body></html>""")
+<button type="submit">Ver oferta no parceiro →</button></form>
+<small>Publicidade / link de associado: compras qualificadas podem gerar comissão. Você será encaminhado ao site do parceiro somente após tocar no botão. A compra e o pagamento são realizados no ambiente do parceiro.</small>
+</main></body></html>""")
 
 
 @app.post("/out/{offer_id}")
