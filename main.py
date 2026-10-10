@@ -1020,3 +1020,66 @@ def premium_ai_ranking(
         "offers": offers,
         "note": "Advisory ranking only; no posting, offer changes, or automated purchases.",
     }
+
+
+@app.get("/api/commercial/funnel-audit")
+def funnel_audit():
+    """Read-only, date-aware reconciliation of visits, clicks and partner conversions.
+
+    Historical clicks can predate the V2 landing, so counts are never treated
+    as a single conversion cohort. No synthetic traffic is generated.
+    """
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*) AS total,
+                       COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') AS last_7d,
+                       COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours') AS last_24h
+                FROM clicks
+            """)
+            clicks = cur.fetchone()
+            cur.execute("""
+                SELECT COUNT(*) AS total,
+                       COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') AS last_7d,
+                       COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours') AS last_24h
+                FROM offer_landing_visits
+            """)
+            landings = cur.fetchone()
+            cur.execute("""
+                SELECT COUNT(*) AS total,
+                       COUNT(*) FILTER (WHERE visited_at >= NOW() - INTERVAL '7 days') AS last_7d,
+                       COUNT(*) FILTER (WHERE visited_at >= NOW() - INTERVAL '24 hours') AS last_24h
+                FROM catalog_visits
+            """)
+            catalog = cur.fetchone()
+            cur.execute("""
+                SELECT COUNT(*) FILTER (WHERE status='pending') AS pending,
+                       COUNT(*) FILTER (WHERE status='confirmed') AS confirmed,
+                       COUNT(*) FILTER (WHERE status='reversed') AS reversed,
+                       COUNT(*) FILTER (WHERE status='cancelled') AS cancelled
+                FROM conversions
+            """)
+            conversions = cur.fetchone()
+            cur.execute("""
+                SELECT c.offer_id, o.title, o.active AS offer_active,
+                       p.active AS partner_active, COUNT(*) AS clicks
+                FROM clicks c
+                JOIN offers o ON o.id=c.offer_id
+                JOIN partners p ON p.id=o.partner_id
+                GROUP BY c.offer_id,o.title,o.active,p.active
+                ORDER BY clicks DESC,c.offer_id
+            """)
+            by_offer = cur.fetchall()
+    return {
+        "service": SERVICE, "version": VERSION, "checked_at": now_iso(),
+        "catalog_visits": catalog, "landing_visits": landings,
+        "tracked_clicks": clicks, "provider_conversions": conversions,
+        "clicks_by_offer": by_offer,
+        "diagnostics": {
+            "historical_clicks_may_predate_landing_v2": True,
+            "clicks_are_not_confirmed_partner_arrivals": True,
+            "provider_ingestion_health_not_proven_by_zero_conversions": True,
+            "traffic_and_sales_are_not_a_single_attributed_cohort": True
+        },
+        "read_only": True
+    }
