@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "source": "User-supplied Amazon SiteStripe URLs",
+  "partner_tag": "wero1mercados-20",
+  "publication_state": "pending_validation",
+  "notes": "Manifest only. Do not publish without comparing existing offers, confirming target availability and affiliate eligibility. Promotion must be checked for expiry. No synthetic sales.",
+  "campaigns": [
+    {
+      "id": "home-improvement",
+      "title": "Ferramentas e melhorias para casa",
+      "url": "https://www.amazon.com.br/s?__mk_pt_BR=%C3%85M%C3%85%C5%BD%C3%95%C3%91&url=search-alias%3Dhi&field-keywords=&crid=1104EC5OMXVMC&sprefix=%2Chi%2C423&linkCode=ll2&tag=wero1mercados-20&linkId=2746c808e7a59c78b7c251cd715867ed&ref_=as_li_ss_tl",
+      "type": "category",
+      "enabled": false,
+      "validated": false
+    },
+    {
+      "id": "garden",
+      "title": "Casa e Jardim",
+      "url": "https://www.amazon.com.br/s?__mk_pt_BR=%C3%85M%C3%85%C5%BD%C3%95%C3%91&url=search-alias%3Dgarden&field-keywords=&crid=2D1EG7W8RFDWW&sprefix=%2Cgarden%2C292&linkCode=ll2&tag=wero1mercados-20&linkId=74bc4cd65a033771f4029a9f7fd7e16f&ref_=as_li_ss_tl",
+      "type": "category",
+      "enabled": false,
+      "validated": false
+    },
+    {
+      "id": "furniture",
+      "title": "Móveis",
+      "url": "https://www.amazon.com.br/s?__mk_pt_BR=%C3%85M%C3%85%C5%BD%C3%95%C3%91&url=search-alias%3Dfurniture&field-keywords=&crid=38Z6M2QNJMBUP&sprefix=%2Cfurniture%2C257&linkCode=ll2&tag=wero1mercados-20&linkId=1475bf6ef0fededb555a42a0e7caff95&ref_=as_li_ss_tl",
+      "type": "category",
+      "enabled": false,
+      "validated": false
+    },
+    {
+      "id": "mobile-apps",
+      "title": "Aplicativos móveis",
+      "url": "https://www.amazon.com.br/s?__mk_pt_BR=%C3%85M%C3%85%C5%BD%C3%95%C3%91&url=search-alias%3Dmobile-apps&field-keywords=&crid=37RZQEZG7BKS2&sprefix=%2Cmobile-apps%2C233&linkCode=ll2&tag=wero1mercados-20&linkId=3dc2456b060046aba3e9edada51960fa&ref_=as_li_ss_tl",
+      "type": "category",
+      "enabled": false,
+      "validated": false
+    },
+    {
+      "id": "luxury-beauty",
+      "title": "Beleza de luxo",
+      "url": "https://www.amazon.com.br/s?__mk_pt_BR=%C3%85M%C3%85%C5%BD%C3%95%C3%91&url=search-alias%3Dluxury-beauty&field-keywords=&crid=ZEMZ37QUOC5U&sprefix=%2Cluxury-beauty%2C393&linkCode=ll2&tag=wero1mercados-20&linkId=6786479b8b17af73d0b6e9b0e2687636&ref_=as_li_ss_tl",
+      "type": "category",
+      "enabled": false,
+      "validated": false
+    },
+    {
+      "id": "fashion-luggage",
+      "title": "Malas e viagem",
+      "url": "https://www.amazon.com.br/s?__mk_pt_BR=%C3%85M%C3%85%C5%BD%C3%95%C3%91&url=search-alias%3Dfashion-luggage&field-keywords=&crid=3LL2I5R3DYUKH&sprefix=%2Cfashion-luggage%2C219&linkCode=ll2&tag=wero1mercados-20&linkId=128397c7ac46f7f3836c5c1a25a57352&ref_=as_li_ss_tl",
+      "type": "category",
+      "enabled": false,
+      "validated": false
+    },
+    {
+      "id": "node-18914209011",
+      "title": "Página Amazon 18914209011",
+      "url": "https://www.amazon.com.br/b?node=18914209011&linkCode=ll2&tag=wero1mercados-20&linkId=2c3e38e6be7bd9f85e58421391072138&ref_=as_li_ss_tl",
+      "type": "node",
+      "enabled": false,
+      "validated": false
+    },
+    {
+      "id": "mega-oferta-prime",
+      "title": "Mega Oferta Prime",
+      "url": "https://www.amazon.com.br/megaofertaprime?&linkCode=ll2&tag=wero1mercados-20&linkId=4f223882ed271e5dc782452143fbce30&ref_=as_li_ss_tl",
+      "type": "promotion",
+      "enabled": false,
+      "validated": false
+    },
+    {
+      "id": "amazon-home",
+      "title": "Amazon Brasil — página inicial",
+      "url": "https://www.amazon.com.br?&linkCode=ll2&tag=wero1mercados-20&linkId=9ec2e22cf3f4223a469bbc64739c5067&ref_=as_li_ss_tl",
+      "type": "homepage",
+      "enabled": false,
+      "validated": false
+    },
+    {
+      "id": "node-216964382011",
+      "title": "Página Amazon 216964382011",
+      "url": "https://www.amazon.com.br/b?node=216964382011&linkCode=ll2&tag=wero1mercados-20&linkId=8c6df9f479f2732bb78fc9f4a5523449&ref_=as_li_ss_tl",
+      "type": "node",
+      "enabled": false,
+      "validated": false
+    },
+    {
+      "id": "amazon-devices",
+      "title": "Dispositivos Amazon",
+      "url": "https://www.amazon.com.br/s?i=amazon-devices&__mk_pt_BR=%C3%85M%C3%85%C5%BD%C3%95%C3%91&crid=10VLOQDCE52QG&sprefix=%2Camazon-devices%2C248&linkCode=ll2&tag=wero1mercados-20&linkId=de8403cf69e183414c478079977d3b20&ref_=as_li_ss_tl",
+      "type": "category",
+      "enabled": false,
+      "validated": false
+    }
+  ]
+}
