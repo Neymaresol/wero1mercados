@@ -2,7 +2,9 @@ AMAZON_CURATED_CAMPAIGNS = [["amazon-fones-abertos-99528904011","Fones de Ouvido
 
 import os
 from datetime import datetime, timezone
-from urllib.parse import urlparse, urlencode
+from urllib.parse import urlparse, urlencode, parse_qs
+from pathlib import Path
+import json
 
 import psycopg
 from psycopg.rows import dict_row
@@ -262,6 +264,85 @@ def init_db():
         # commit here makes startup schema/data migrations unambiguous.
         conn.commit()
 
+def amazon_destination_key(url):
+    """Compare Amazon destinations without tracking-only SiteStripe parameters."""
+    parsed = urlparse(url)
+    if parsed.hostname not in {"amazon.com.br", "www.amazon.com.br"}:
+        return None
+    query = parse_qs(parsed.query)
+    if query.get("node"):
+        return "node:" + query["node"][0]
+    if parsed.path == "/s":
+        alias = query.get("url", [""])[0]
+        if alias.startswith("search-alias="):
+            return "search:" + alias.split("=", 1)[1]
+        if query.get("i"):
+            return "search:" + query["i"][0]
+        if query.get("k"):
+            return "keywords:" + query["k"][0].strip().lower()
+    return "path:" + parsed.path.rstrip("/").lower()
+
+
+def seed_additional_amazon_campaigns():
+    """Add distinct approved category campaigns; never delete historical records."""
+    manifest_path = Path(__file__).parent / "catalog" / "amazon_manual_campaigns_pending.json"
+    if not manifest_path.is_file():
+        return
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    # Only category searches are eligible for automatic publishing.
+    # Promotional pages, homepage and unknown node pages remain quarantined.
+    eligible = [c for c in manifest.get("campaigns", [])
+                if c.get("type") == "category" and c.get("url")]
+    category_map = {
+        "home-improvement": "ferramentas",
+        "garden": "casa-cozinha",
+        "furniture": "casa-cozinha",
+        "mobile-apps": "cursos-produtos-digitais",
+        "luxury-beauty": "beleza-cuidados-pessoais",
+        "fashion-luggage": "moda-acessorios",
+        "amazon-devices": "eletronicos-celulares",
+    }
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM partners WHERE domain='amazon.com.br' AND active=TRUE")
+            partner = cur.fetchone()
+            if not partner:
+                raise RuntimeError("Amazon Brasil partner unavailable")
+            partner_id = partner["id"]
+            cur.execute("SELECT authorized_url FROM offers WHERE partner_id=%s", (partner_id,))
+            existing_keys = {amazon_destination_key(r["authorized_url"]) for r in cur.fetchall()}
+            for campaign in eligible:
+                campaign_id = campaign["id"]
+                if campaign_id not in category_map:
+                    continue
+                url = campaign["url"]
+                validate_authorized_url(url, "amazon.com.br")
+                if parse_qs(urlparse(url).query).get("tag") != ["wero1mercados-20"]:
+                    continue
+                destination = amazon_destination_key(url)
+                if not destination or destination in existing_keys:
+                    continue
+                category_slug = category_map[campaign_id]
+                cur.execute("SELECT id FROM categories WHERE slug=%s AND active=TRUE", (category_slug,))
+                category = cur.fetchone()
+                if not category:
+                    raise RuntimeError("Amazon category unavailable: " + category_slug)
+                sku = "amazon-manual-" + campaign_id
+                title = campaign["title"] + " - Amazon"
+                cur.execute("""INSERT INTO products(category_id,sku,title,market,currency,active,source,last_validated_at,updated_at)
+                    VALUES(%s,%s,%s,'BR','BRL',TRUE,'user_sitestripe',NOW(),NOW())
+                    ON CONFLICT(sku) DO UPDATE SET title=EXCLUDED.title,category_id=EXCLUDED.category_id,
+                    updated_at=NOW() RETURNING id""", (category["id"], sku, title))
+                product_id = cur.fetchone()["id"]
+                cur.execute("""INSERT INTO offers(partner_id,product_id,title,authorized_url,active,source,source_updated_at)
+                    VALUES(%s,%s,%s,%s,TRUE,'user_sitestripe',NOW())
+                    ON CONFLICT(product_id,partner_id,authorized_url)
+                    DO UPDATE SET title=EXCLUDED.title,source_updated_at=NOW()""",
+                    (partner_id, product_id, title, url))
+                existing_keys.add(destination)
+        conn.commit()
+
+
 def seed_amazon_campaigns():
     """Idempotent publication of user-supplied SiteStripe category links."""
     with db() as conn:
@@ -304,6 +385,7 @@ def seed_amazon_campaigns():
 def startup():
     init_db()
     seed_amazon_campaigns()
+    seed_additional_amazon_campaigns()
 
 
 def now_iso():
