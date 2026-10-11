@@ -412,13 +412,13 @@ async function refreshCampaigns(){
   if(!response.ok)throw new Error('HTTP '+response.status);
   const payload=await response.json();
   if(!Array.isArray(payload.offers))throw new Error('Resposta inválida');
-  const offers=payload.offers.filter(o=>o.partner_name==='Amazon Brasil');
+  const offers=payload.offers.filter(o=>o.partner_name==='Amazon Brasil' && o.active===true);
   const active=offers.filter(o=>o.active===true);
   document.getElementById('campaign-active').textContent=String(active.length);
   document.getElementById('campaign-total').textContent=String(offers.length);
   document.getElementById('campaign-updated').textContent='Fonte: /api/offers · Atualização automática a cada 15 segundos · '+new Date().toLocaleTimeString('pt-BR');
   container.replaceChildren();
-  offers.sort((a,b)=>Number(b.active)-Number(a.active)||Number(b.id)-Number(a.id)).forEach(o=>{
+  offers.sort((a,b)=>Number(b.id)-Number(a.id)).forEach(o=>{
    const card=document.createElement('div');card.style.cssText='padding:12px;border:1px solid #21486b;border-radius:10px;background:#071b30';
    const heading=document.createElement('strong');heading.textContent=o.title||'Campanha sem nome';
    const info=document.createElement('div');info.style.cssText='font-size:12px;color:#b9cde2;margin-top:8px';info.textContent='ID '+o.id+' · '+(o.partner_name||'Amazon')+' · '+(o.active?'ATIVA':'INATIVA');
