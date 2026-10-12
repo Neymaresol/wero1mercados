@@ -652,9 +652,18 @@ def validate_authorized_url(url: str, domain: str):
         port = parsed.port
     except ValueError:
         raise HTTPException(status_code=400, detail="Destino invalido")
+    if not isinstance(domain, str):
+        raise HTTPException(status_code=400, detail="Dominio parceiro invalido")
     expected = domain.strip().lower().rstrip(".")
+    # Refuse empty labels, whitespace and URL-like partner-domain entries.
+    labels = expected.split(".")
+    domain_valid = (len(labels) >= 2 and all(
+        label and len(label) <= 63 and label[0].isalnum() and label[-1].isalnum()
+        and all(ch.isascii() and (ch.isalnum() or ch == "-") for ch in label)
+        for label in labels
+    ))
     if (parsed.username is not None or parsed.password is not None or
-            port not in (None, 443) or not expected or
+            port not in (None, 443) or not domain_valid or
             any(ch in expected for ch in "/:@?#") or
             (host != expected and not host.endswith("." + expected))):
         raise HTTPException(status_code=400, detail="Destino nao autorizado")
