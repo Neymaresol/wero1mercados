@@ -15,7 +15,7 @@ from decimal import Decimal
 import secrets
 import html
 import time
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, Response
 
 VERSION = "1.14.15-BR-rc1"
 SERVICE = "wero1mercados"
