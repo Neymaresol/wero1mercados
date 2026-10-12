@@ -753,7 +753,7 @@ def list_offers():
             validate_authorized_url(item["authorized_url"], item["domain"])
         except (HTTPException, ValueError, TypeError):
             continue
-        safe_offers.append({key: value for key, value in item.items() if key != "authorized_url"})
+        safe_offers.append(item)
     return {"offers": safe_offers}
 
 
