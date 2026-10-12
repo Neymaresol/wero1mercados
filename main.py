@@ -640,11 +640,20 @@ def upsert_commercial_product(payload: ProductIn, _admin: None = Depends(require
 
 def validate_authorized_url(url: str, domain: str):
     parsed = urlparse(url)
-    if parsed.scheme != "https":
+    if parsed.scheme != "https" or not parsed.netloc:
         raise HTTPException(status_code=400, detail="Destino deve usar HTTPS")
-    host = (parsed.hostname or "").lower()
-    expected = domain.strip().lower()
-    if not expected or (host != expected and not host.endswith("." + expected)):
+    # Fail closed for credentials, custom ports and malformed partner domains.
+    # A plain HTTPS host is sufficient; no network call is needed on the hot path.
+    try:
+        host = (parsed.hostname or "").lower().rstrip(".")
+        port = parsed.port
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Destino invalido")
+    expected = domain.strip().lower().rstrip(".")
+    if (parsed.username is not None or parsed.password is not None or
+            port not in (None, 443) or not expected or
+            any(ch in expected for ch in "/:@?#") or
+            (host != expected and not host.endswith("." + expected))):
         raise HTTPException(status_code=400, detail="Destino nao autorizado")
 
 
