@@ -16,7 +16,7 @@ class OffersCatalogRegression(unittest.TestCase):
     def test_offers_route_exists(self):
         routes = [n for n in TREE.body if isinstance(n, ast.FunctionDef) and n.name == "list_offers"]
         self.assertEqual(len(routes), 1)
-        self.assertIn('"/api/offers"', ast.unparse(routes[0].decorator_list))
+        self.assertTrue(any(isinstance(d, ast.Call) and d.args and isinstance(d.args[0], ast.Constant) and d.args[0].value == "/api/offers" for d in routes[0].decorator_list))
 
     def test_api_validates_authorized_url_before_returning(self):
         route = next(n for n in TREE.body if isinstance(n, ast.FunctionDef) and n.name == "list_offers")
