@@ -415,12 +415,12 @@ def health():
     }
 
 
-@app.get("/dashboard", response_class=HTMLResponse)
 @app.get("/assets/werozinha-avatar.svg", include_in_schema=False)
 def werozinha_avatar():
     return HTMLResponse((Path(__file__).parent / "static" / "werozinha-avatar.svg").read_text(encoding="utf-8"), media_type="image/svg+xml")
 
 
+@app.get("/dashboard", response_class=HTMLResponse)
 def dashboard():
     return """<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
