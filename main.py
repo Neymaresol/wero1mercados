@@ -415,6 +415,14 @@ def health():
     }
 
 
+@app.get("/assets/werozinha-3d.png", include_in_schema=False)
+def werozinha_3d():
+    image_path = Path(__file__).parent / "static" / "werozinha-3d.png"
+    if not image_path.is_file():
+        raise HTTPException(status_code=404, detail="Werozinha 3D image not installed")
+    return Response(content=image_path.read_bytes(), media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
+
+
 @app.get("/assets/werozinha-avatar.svg", include_in_schema=False)
 def werozinha_avatar():
     return HTMLResponse((Path(__file__).parent / "static" / "werozinha-avatar.svg").read_text(encoding="utf-8"), media_type="image/svg+xml")
@@ -434,7 +442,7 @@ def dashboard():
 <div class="app">
 <aside class="left panel" style="padding:18px"><div class="brand">♛ PARADIGMA<small>ECOSSISTEMA WERO</small></div><div class="menu"><button type="button" data-tab="dashboard">Dashboard</button><button type="button" data-tab="robots">Robôs</button><button type="button" data-tab="sales">Vendas</button><button type="button" data-tab="finance">Financeiro</button><button type="button" data-tab="reports">Relatórios</button><button type="button" data-tab="notifications">Notificações</button><button type="button" data-tab="settings">Configurações</button><button type="button" data-tab="help">Ajuda</button></div></aside>
 <main><div class="top"><div class="brand">PARADIGMA <span class="gold">WERO</span></div><span class="prod">● PRODUÇÃO</span></div><nav class="mobile-nav"><button type="button" data-tab="dashboard">Dashboard</button><button type="button" data-tab="robots">Robôs</button><button type="button" data-tab="sales">Vendas</button><button type="button" data-tab="finance">Financeiro</button><button type="button" data-tab="reports">Relatórios</button><button type="button" data-tab="notifications">Notificações</button><button type="button" data-tab="settings">Configurações</button><button type="button" data-tab="help">Ajuda</button></nav>
-<section class="hero panel"><img class="werozinha-avatar" src="/assets/werozinha-avatar.svg" width="88" height="88" alt="Werozinha — IA de vendas digitais" loading="eager"><h1>PARADIGMA</h1><h2>WERO</h2><p>DASHBOARD MESTRE</p><p class="muted">ROBÔS • VENDAS • FINANCEIRO • OPERAÇÃO GLOBAL</p></section>
+<section class="hero panel"><img class="werozinha-avatar" src="/assets/werozinha-3d.png" width="88" height="88" alt="Werozinha — IA de vendas digitais" loading="eager"><h1>PARADIGMA</h1><h2>WERO</h2><p>DASHBOARD MESTRE</p><p class="muted">ROBÔS • VENDAS • FINANCEIRO • OPERAÇÃO GLOBAL</p></section>
 <h3 class="pressure-title">⚡ PRESSÃO OPERACIONAL — TEMPO REAL</h3><section class="gauges">
 <div class="gauge card" id="g-general"><b>WERO1 GERAL</b><div class="dial" id="dial-general"><i class="needle"></i></div><div class="dial-scale" id="scale-general"><span>0</span><span>500</span><span>1000</span></div><div class="pressure" id="p-general">—</div><span class="muted">eventos rastreados • escala dinâmica</span></div>
 <div class="gauge card idle"><b>wero1-operario</b><div class="dial" id="dial-operario"><i class="needle"></i></div><div class="dial-scale" id="scale-operario"><span>0</span><span>500</span><span>1000</span></div><div class="pressure" id="p-operario">—</div><span class="muted">telemetria externa pendente</span></div>
@@ -1256,7 +1264,7 @@ background:linear-gradient(145deg,#192b43,#080d18);color:#fff;text-decoration:no
 footer{font-size:13px;line-height:1.7;color:#c5cbd5}
 </style></head><body><main>
 <h1>Werozinha</h1><p class="sub">IA DE VENDAS DIGITAIS · PARADIGMA</p>
-<img class="avatar" src="/assets/werozinha-avatar.svg" alt="Mascote robótica Werozinha">
+<img class="avatar" src="/assets/werozinha-3d.png" alt="Mascote robótica Werozinha">
 <h2>Escolha uma categoria Amazon Brasil</h2>
 <p>Toque em uma categoria para consultar a oferta autorizada e seguir para a loja parceira.</p>
 <section class="grid">""" + tiles + """</section>
