@@ -639,7 +639,10 @@ def upsert_commercial_product(payload: ProductIn, _admin: None = Depends(require
 
 
 def validate_authorized_url(url: str, domain: str):
-    parsed = urlparse(url)
+    try:
+        parsed = urlparse(url)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Destino invalido")
     if parsed.scheme != "https" or not parsed.netloc:
         raise HTTPException(status_code=400, detail="Destino deve usar HTTPS")
     # Fail closed for credentials, custom ports and malformed partner domains.
@@ -749,7 +752,7 @@ def list_offers():
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT o.id, o.product_id, o.title, o.price_brl, o.commission_brl, o.active,
-                       p.id AS partner_id, p.name AS partner_name, p.domain
+                       p.id AS partner_id, p.name AS partner_name, p.domain, o.authorized_url
                 FROM offers o JOIN partners p ON p.id=o.partner_id
                 WHERE o.active=TRUE AND p.active=TRUE
                 ORDER BY o.id DESC
@@ -762,7 +765,7 @@ def list_offers():
             validate_authorized_url(item["authorized_url"], item["domain"])
         except (HTTPException, ValueError, TypeError):
             continue
-        safe_offers.append(item)
+        safe_offers.append({key: value for key, value in item.items() if key != "authorized_url"})
     return {"offers": safe_offers}
 
 
