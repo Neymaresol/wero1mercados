@@ -756,7 +756,7 @@ a:focus-visible{outline:3px solid orange}footer{margin-top:24px;color:#555}</sty
 </head><body><main><h1>Ofertas Wero1Mercados</h1>
 <p>Escolha uma oferta e confirme o acesso ao site do parceiro.</p>
 <form method="get" action="/catalogo" role="search"><label for="q">Buscar ofertas autorizadas</label>
-<input id="q" name="q" maxlength="80" value="""" + search_value + """" placeholder="Produto ou parceiro">
+<input id="q" name="q" maxlength="80" value=\'""" + search_value + """\' placeholder="Produto ou parceiro">
 <button type="submit">Buscar</button></form>
 <section class="grid">""" + body + """</section>
 <footer>Publicidade: podemos receber comissão por compras qualificadas.
