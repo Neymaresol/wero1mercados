@@ -639,12 +639,33 @@ def upsert_commercial_product(payload: ProductIn, _admin: None = Depends(require
 
 
 def validate_authorized_url(url: str, domain: str):
-    parsed = urlparse(url)
-    if parsed.scheme != "https":
+    try:
+        parsed = urlparse(url)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Destino invalido")
+    if parsed.scheme != "https" or not parsed.netloc:
         raise HTTPException(status_code=400, detail="Destino deve usar HTTPS")
-    host = (parsed.hostname or "").lower()
-    expected = domain.strip().lower()
-    if not expected or (host != expected and not host.endswith("." + expected)):
+    # Fail closed for credentials, custom ports and malformed partner domains.
+    # A plain HTTPS host is sufficient; no network call is needed on the hot path.
+    try:
+        host = (parsed.hostname or "").lower().rstrip(".")
+        port = parsed.port
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Destino invalido")
+    if not isinstance(domain, str):
+        raise HTTPException(status_code=400, detail="Dominio parceiro invalido")
+    expected = domain.strip().lower().rstrip(".")
+    # Refuse empty labels, whitespace and URL-like partner-domain entries.
+    labels = expected.split(".")
+    domain_valid = (len(labels) >= 2 and all(
+        label and len(label) <= 63 and label[0].isalnum() and label[-1].isalnum()
+        and all(ch.isascii() and (ch.isalnum() or ch == "-") for ch in label)
+        for label in labels
+    ))
+    if (parsed.username is not None or parsed.password is not None or
+            port not in (None, 443) or not domain_valid or
+            any(ch in expected for ch in "/:@?#") or
+            (host != expected and not host.endswith("." + expected))):
         raise HTTPException(status_code=400, detail="Destino nao autorizado")
 
 
@@ -740,13 +761,21 @@ def list_offers():
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT o.id, o.product_id, o.title, o.price_brl, o.commission_brl, o.active,
-                       p.id AS partner_id, p.name AS partner_name, p.domain
+                       p.id AS partner_id, p.name AS partner_name, p.domain, o.authorized_url
                 FROM offers o JOIN partners p ON p.id=o.partner_id
                 WHERE o.active=TRUE AND p.active=TRUE
                 ORDER BY o.id DESC
             """)
             rows = cur.fetchall()
-    return {"offers": rows}
+    # Match the public storefront: never advertise an invalid affiliate destination.
+    safe_offers = []
+    for item in rows:
+        try:
+            validate_authorized_url(item["authorized_url"], item["domain"])
+        except (HTTPException, ValueError, TypeError):
+            continue
+        safe_offers.append({key: value for key, value in item.items() if key != "authorized_url"})
+    return {"offers": safe_offers}
 
 
 @app.get("/go/{offer_id}", response_class=HTMLResponse)
