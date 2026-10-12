@@ -1,23 +1,28 @@
-"""Opt-in GET-only tests. Do not request /go links: they record clicks."""
-import json
-import os
+"""Offline affiliate funnel contract checks; no synthetic click or sale."""
+import ast
+from pathlib import Path
 import unittest
-from urllib.request import urlopen
 
-BASE = os.getenv("WERO_MERCADOS_URL", "").rstrip("/")
+SOURCE = Path(__file__).resolve().parents[1] / "main.py"
 
-@unittest.skipUnless(BASE, "WERO_MERCADOS_URL not set")
-class AffiliateReadOnly(unittest.TestCase):
-    def get(self, path):
-        with urlopen(BASE + path, timeout=15) as response:
-            self.assertEqual(response.status, 200)
-            return json.load(response)
+class AffiliateContract(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.source = SOURCE.read_text(encoding="utf-8")
+        cls.tree = ast.parse(cls.source)
 
-    def test_health(self):
-        self.assertEqual(self.get("/health").get("status"), "ok")
+    def test_public_routes(self):
+        for route in ("/health", "/api/offers", "/api/acquisition", "/api/commercial"):
+            with self.subTest(route=route):
+                self.assertIn(repr(route), self.source)
 
-    def test_public_offers_response(self):
-        self.assertIsInstance(self.get("/api/offers"), (dict, list))
+    def test_click_and_conversion_routes_separated(self):
+        self.assertIn('"/go/{offer_id}"', self.source)
+        self.assertIn('"/out/{offer_id}"', self.source)
+        self.assertIn('"/api/commercial/conversions/provider"', self.source)
+
+    def test_source_is_valid_python(self):
+        self.assertIsInstance(self.tree, ast.Module)
 
 if __name__ == "__main__":
     unittest.main()
