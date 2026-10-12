@@ -1176,3 +1176,62 @@ def premium_ai_ranking(
         "offers": offers,
         "note": "Advisory ranking only; no posting, offer changes, or automated purchases.",
     }
+
+
+@app.get("/campanha/werozinha", response_class=HTMLResponse)
+def werozinha_amazon_campaign():
+    """Category images link to verified offer landings, never directly to unchecked URLs."""
+    category_specs = (
+        ("Eletrônicos", "🎧", ("Eletrônicos em Oferta", "Mais Vendidos em Eletrônicos")),
+        ("Casa", "🏠", ("Casa e Jardim - Amazon",)),
+        ("Ferramentas", "🔧", ("Ferramentas e melhorias para casa - Amazon",)),
+        ("Beleza", "✨", ("Beleza de luxo - Amazon",)),
+    )
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT o.id,o.title,o.authorized_url,p.domain FROM offers o
+                JOIN partners p ON p.id=o.partner_id
+                WHERE o.active=TRUE AND p.active=TRUE AND p.domain='amazon.com.br'""")
+            rows = cur.fetchall()
+    by_title = {str(row["title"]): row for row in rows}
+    cards = []
+    for label, emoji, titles in category_specs:
+        item = next((by_title[t] for t in titles if t in by_title), None)
+        if item is None:
+            continue
+        try:
+            validate_authorized_url(item["authorized_url"], item["domain"])
+        except (HTTPException, ValueError):
+            continue
+        target = "/go/" + str(int(item["id"])) + "?channel=social&campaign=werozinha-amazon"
+        cards.append('<a class="tile" href="' + html.escape(target, quote=True) +
+                     '" aria-label="Ver ' + html.escape(label, quote=True) +
+                     ' na Amazon"><span class="emoji">' + emoji + '</span><strong>' +
+                     html.escape(label) + '</strong><small>Ver categoria →</small></a>')
+    tiles = "".join(cards) or "<p>Nenhuma categoria autorizada disponível neste momento.</p>"
+    return HTMLResponse("""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Werozinha | Ofertas Amazon no Wero1Mercados</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(135deg,#060c18,#101b30);color:#fff;font:16px system-ui,sans-serif}
+main{max-width:950px;margin:auto;padding:34px 18px;text-align:center}
+h1{color:#ffb62a;font-size:clamp(32px,7vw,62px);margin:12px 0}
+h2{font-size:clamp(21px,4vw,32px)}.sub{color:#a6dfff}
+.avatar{display:block;margin:18px auto;max-height:260px;max-width:85%;object-fit:contain}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin:30px 0}
+.tile{display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;
+padding:25px 12px;min-height:195px;border-radius:18px;border:2px solid #ffad24;
+background:linear-gradient(145deg,#192b43,#080d18);color:#fff;text-decoration:none}
+.tile:hover,.tile:focus-visible{border-color:#2ed8ff;outline:2px solid #2ed8ff}
+.emoji{font-size:56px}.tile strong{font-size:21px}.tile small{color:#7be3ff}
+footer{font-size:13px;line-height:1.7;color:#c5cbd5}
+</style></head><body><main>
+<h1>Werozinha</h1><p class="sub">IA DE VENDAS DIGITAIS · PARADIGMA</p>
+<img class="avatar" src="/assets/werozinha-avatar.svg" alt="Mascote robótica Werozinha">
+<h2>Escolha uma categoria Amazon Brasil</h2>
+<p>Toque em uma categoria para consultar a oferta autorizada e seguir para a loja parceira.</p>
+<section class="grid">""" + tiles + """</section>
+<footer>Publicidade: podemos receber comissão por compras qualificadas.
+Preços, entrega e disponibilidade devem ser confirmados no site da Amazon.
+A compra é concluída no ambiente do parceiro.</footer>
+</main></body></html>""")
