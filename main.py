@@ -786,6 +786,37 @@ def list_offers():
     return {"offers": safe_offers}
 
 
+@app.get("/api/tags/trends")
+def authorized_storefront_trends():
+    """TAG 02: observed internal click trends only; no external popularity claims."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT o.id, o.title, p.name AS partner_name, p.domain, o.authorized_url,
+                       COUNT(c.id) AS recorded_clicks
+                FROM offers o
+                JOIN partners p ON p.id=o.partner_id
+                LEFT JOIN clicks c ON c.offer_id=o.id
+                WHERE o.active=TRUE AND p.active=TRUE
+                GROUP BY o.id, o.title, p.name, p.domain, o.authorized_url
+                ORDER BY recorded_clicks DESC, o.id DESC
+                LIMIT 20
+            """)
+            rows = cur.fetchall()
+    offers = []
+    for item in rows:
+        try:
+            validate_authorized_url(item["authorized_url"], item["domain"])
+        except (HTTPException, ValueError, TypeError):
+            continue
+        offers.append({"offer_id": item["id"], "title": item["title"],
+                       "partner_name": item["partner_name"],
+                       "recorded_clicks": item["recorded_clicks"],
+                       "landing_path": "/go/" + str(item["id"])})
+    return {"source": "internal_recorded_clicks", "external_trend_sources_connected": False,
+            "popularity_claim": "not_verified", "offers": offers}
+
+
 @app.get("/go/{offer_id}", response_class=HTMLResponse)
 def go_offer_landing(
     offer_id: int,
