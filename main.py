@@ -1215,6 +1215,7 @@ def werozinha_one_click_amazon(
     return RedirectResponse(target, status_code=302)
 
 
+@app.get("/vitrine", response_class=HTMLResponse)
 @app.get("/campanha/werozinha", response_class=HTMLResponse)
 def werozinha_amazon_campaign():
     """Category images link to verified offer landings, never directly to unchecked URLs."""
