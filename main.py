@@ -705,7 +705,7 @@ def register_commercial_offer(payload: OfferIn, _admin: None = Depends(require_a
 
 
 @app.get("/catalogo", response_class=HTMLResponse)
-def public_catalog(request: Request):
+def public_catalog(request: Request, q: str = Query(default="", max_length=80)):
     """Public storefront; only partner-authorized, active offers are displayed."""
     with db() as conn:
         with conn.cursor() as cur:
@@ -722,8 +722,12 @@ def public_catalog(request: Request):
             with visit_conn.cursor() as visit_cur:
                 visit_cur.execute("INSERT INTO catalog_visits DEFAULT VALUES")
             visit_conn.commit()
+    # TAG 01: search the actual authorized storefront rows, never an invented catalog.
+    search_term = q.strip().casefold()
     cards = []
     for item in rows:
+        if search_term and search_term not in str(item["title"]).casefold() and search_term not in str(item["partner_name"]).casefold():
+            continue
         try:
             validate_authorized_url(item["authorized_url"], item["domain"])
         except (HTTPException, ValueError):
@@ -736,7 +740,8 @@ def public_catalog(request: Request):
             + '</p><a class="button" href="/go/' + str(offer_id)
             + '?channel=catalogo">Ver oferta</a></article>'
         )
-    body = "".join(cards) if cards else '<p>Nenhuma oferta autorizada disponível no momento.</p>'
+    body = "".join(cards) if cards else '<p>Nenhuma oferta autorizada encontrada.</p>'
+    search_value = html.escape(q, quote=True)
     return HTMLResponse("""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="index,follow">
@@ -750,6 +755,9 @@ text-decoration:none;padding:12px 16px;border-radius:8px}
 a:focus-visible{outline:3px solid orange}footer{margin-top:24px;color:#555}</style>
 </head><body><main><h1>Ofertas Wero1Mercados</h1>
 <p>Escolha uma oferta e confirme o acesso ao site do parceiro.</p>
+<form method="get" action="/catalogo" role="search"><label for="q">Buscar ofertas autorizadas</label>
+<input id="q" name="q" maxlength="80" value=\'""" + search_value + """\' placeholder="Produto ou parceiro">
+<button type="submit">Buscar</button></form>
 <section class="grid">""" + body + """</section>
 <footer>Publicidade: podemos receber comissão por compras qualificadas.
 Preços e disponibilidade são definidos pelo parceiro.</footer></main></body></html>""")
@@ -776,6 +784,37 @@ def list_offers():
             continue
         safe_offers.append({key: value for key, value in item.items() if key != "authorized_url"})
     return {"offers": safe_offers}
+
+
+@app.get("/api/tags/trends")
+def authorized_storefront_trends():
+    """TAG 02: observed internal click trends only; no external popularity claims."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT o.id, o.title, p.name AS partner_name, p.domain, o.authorized_url,
+                       COUNT(c.id) AS recorded_clicks
+                FROM offers o
+                JOIN partners p ON p.id=o.partner_id
+                LEFT JOIN clicks c ON c.offer_id=o.id
+                WHERE o.active=TRUE AND p.active=TRUE
+                GROUP BY o.id, o.title, p.name, p.domain, o.authorized_url
+                ORDER BY recorded_clicks DESC, o.id DESC
+                LIMIT 20
+            """)
+            rows = cur.fetchall()
+    offers = []
+    for item in rows:
+        try:
+            validate_authorized_url(item["authorized_url"], item["domain"])
+        except (HTTPException, ValueError, TypeError):
+            continue
+        offers.append({"offer_id": item["id"], "title": item["title"],
+                       "partner_name": item["partner_name"],
+                       "recorded_clicks": item["recorded_clicks"],
+                       "landing_path": "/go/" + str(item["id"])})
+    return {"source": "internal_recorded_clicks", "external_trend_sources_connected": False,
+            "popularity_claim": "not_verified", "offers": offers}
 
 
 @app.get("/go/{offer_id}", response_class=HTMLResponse)
