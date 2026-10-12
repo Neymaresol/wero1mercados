@@ -746,7 +746,15 @@ def list_offers():
                 ORDER BY o.id DESC
             """)
             rows = cur.fetchall()
-    return {"offers": rows}
+    # Match the public storefront: never advertise an invalid affiliate destination.
+    safe_offers = []
+    for item in rows:
+        try:
+            validate_authorized_url(item["authorized_url"], item["domain"])
+        except (HTTPException, ValueError, TypeError):
+            continue
+        safe_offers.append({key: value for key, value in item.items() if key != "authorized_url"})
+    return {"offers": safe_offers}
 
 
 @app.get("/go/{offer_id}", response_class=HTMLResponse)
