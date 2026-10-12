@@ -1178,6 +1178,35 @@ def premium_ai_ranking(
     }
 
 
+@app.get("/campanha/werozinha/amazon/{offer_id}")
+def werozinha_one_click_amazon(
+    offer_id: int,
+    channel: str = Query(default="social", max_length=40),
+    campaign: str = Query(default="werozinha-amazon", max_length=80),
+):
+    """Single-tap Amazon redirect for approved Werozinha campaign offers."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT o.authorized_url, o.active, p.domain,
+                       p.active AS partner_active
+                FROM offers o JOIN partners p ON p.id=o.partner_id
+                WHERE o.id=%s AND p.domain='amazon.com.br'
+            """, (offer_id,))
+            row = cur.fetchone()
+            if not row or not row["active"] or not row["partner_active"]:
+                raise HTTPException(status_code=404, detail="Oferta indisponivel")
+            validate_authorized_url(row["authorized_url"], row["domain"])
+            cur.execute(
+                """INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at)
+                   VALUES(%s,%s,%s,%s,NOW())""",
+                (offer_id, channel, campaign, SERVICE),
+            )
+            target = row["authorized_url"]
+        conn.commit()
+    return RedirectResponse(target, status_code=302)
+
+
 @app.get("/campanha/werozinha", response_class=HTMLResponse)
 def werozinha_amazon_campaign():
     """Category images link to verified offer landings, never directly to unchecked URLs."""
@@ -1203,7 +1232,7 @@ def werozinha_amazon_campaign():
             validate_authorized_url(item["authorized_url"], item["domain"])
         except (HTTPException, ValueError):
             continue
-        target = "/go/" + str(int(item["id"])) + "?channel=social&campaign=werozinha-amazon"
+        target = "/campanha/werozinha/amazon/" + str(int(item["id"])) + "?channel=social&campaign=werozinha-amazon"
         cards.append('<a class="tile" href="' + html.escape(target, quote=True) +
                      '" aria-label="Ver ' + html.escape(label, quote=True) +
                      ' na Amazon"><span class="emoji">' + emoji + '</span><strong>' +
