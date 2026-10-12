@@ -28,7 +28,10 @@ class OffersCatalogRegression(unittest.TestCase):
     def test_api_keeps_existing_offer_shape(self):
         route = next(n for n in TREE.body if isinstance(n, ast.FunctionDef) and n.name == "list_offers")
         code = ast.unparse(route)
-        self.assertIn("safe_offers.append(item)", code)
+        # Public responses retain catalog fields without leaking the internal destination.
+        self.assertIn("safe_offers.append({key: value for key, value in item.items() if key != 'authorized_url'})", code)
+        self.assertIn("o.authorized_url", code)
+        self.assertIn("return {'offers': safe_offers}", code)
 
     def test_no_changes_to_click_or_financial_routes(self):
         names = {n.name for n in TREE.body if isinstance(n, ast.FunctionDef)}
