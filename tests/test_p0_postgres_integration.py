@@ -64,5 +64,28 @@ class FunnelPostgresIntegration(unittest.TestCase):
                 cur.execute("SELECT COUNT(*) FROM conversions WHERE external_id='synthetic'")
                 self.assertEqual(cur.fetchone()[0],0)
 
+
+    def test_admin_funnel_audit_requires_auth_and_remains_read_only(self):
+        previous_token = self.main.WERO_ADMIN_TOKEN
+        try:
+            self.main.WERO_ADMIN_TOKEN = "isolated-audit-token"
+            before = self.counts()
+            unauthorized = self.client.get("/api/p0/funnel-audit")
+            self.assertEqual(unauthorized.status_code, 401)
+            authorized = self.client.get(
+                "/api/p0/funnel-audit",
+                headers={"Authorization": "Bearer isolated-audit-token"},
+            )
+            self.assertEqual(authorized.status_code, 200)
+            body = authorized.json()
+            self.assertEqual(body["source"], "application_database_connection")
+            self.assertEqual([item["id"] for item in body["offers"]], [164, 802])
+            self.assertEqual(body["financial_provenance"], "partner_report_not_authenticated_by_this_audit")
+            self.assertNotIn("authorized_url", str(body))
+            self.assertNotIn("postgresql://", str(body))
+            self.assertEqual(self.counts(), before)
+        finally:
+            self.main.WERO_ADMIN_TOKEN = previous_token
+
 if __name__=="__main__":
     unittest.main()
