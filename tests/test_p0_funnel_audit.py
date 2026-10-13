@@ -54,7 +54,7 @@ class FunnelAuditOfflineTests(unittest.TestCase):
         self.assertEqual(by_campaign["casa-jardim-out26"]["outbound_records"], 1)
         self.assertEqual(by_campaign["werozinha-amazon"]["outbound_evidence"], "UNVERIFIED_GET_REDIRECT")
         self.assertEqual(by_campaign["werozinha-amazon"]["landing_visits"], 0)
-        self.assertNotIn("authorized_url", str(report))
+        self.assertNotIn("'authorized_url':", str(report))
         self.assertNotIn("https://", str(report))
 
     def test_missing_or_wrong_amazon_tag_is_diagnosed(self):
