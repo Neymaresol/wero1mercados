@@ -924,6 +924,13 @@ def ingest_provider_conversion(
     _admin: None = Depends(require_admin),
 ):
     """Ingest only data already confirmed/reported by an authorized partner source."""
+    # P0 fail-closed: an admin bearer token does not authenticate partner provenance.
+    # Verified reports must use a separate audited ingestion flow, not this legacy endpoint.
+    from p0_conversion_gate import reject_unverified_manual_conversion
+    try:
+        reject_unverified_manual_conversion()
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     external_id = payload.external_id.strip()
     status = payload.status.strip().lower()
     allowed = {"pending", "confirmed", "reversed", "cancelled"}
