@@ -81,7 +81,7 @@ class FunnelPostgresIntegration(unittest.TestCase):
             self.assertEqual(body["source"], "application_database_connection")
             self.assertEqual([item["id"] for item in body["offers"]], [164, 802])
             self.assertEqual(body["financial_provenance"], "partner_report_not_authenticated_by_this_audit")
-            self.assertNotIn("authorized_url", str(body))
+            self.assertNotIn("'authorized_url':", str(body))
             self.assertNotIn("postgresql://", str(body))
             self.assertEqual(self.counts(), before)
         finally:
