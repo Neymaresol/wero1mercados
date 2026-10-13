@@ -615,6 +615,26 @@ def require_admin(credentials: HTTPAuthorizationCredentials | None = Depends(adm
         raise HTTPException(status_code=401, detail="Nao autorizado")
 
 
+@app.get("/api/p0/funnel-audit")
+def p0_funnel_audit(_admin: None = Depends(require_admin)):
+    """Authenticated SELECT-only evidence for active offers 164 and 802.
+
+    The endpoint never invokes /go/, /out/, provider APIs or campaign writers.
+    It never returns DATABASE_URL, affiliate destinations or visitor data.
+    """
+    from p0_funnel_audit import audit_funnel
+    from scripts.p0_database_identity import diagnose
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET TRANSACTION READ ONLY")
+                report = audit_funnel(cur, validate_authorized_url)
+    except (psycopg.Error, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail="funnel_audit_unavailable") from exc
+    report["database_config"] = diagnose()
+    return report
+
+
 class ProductIn(BaseModel):
     sku: str = Field(min_length=1, max_length=120)
     title: str = Field(min_length=1, max_length=300)
