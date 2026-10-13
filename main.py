@@ -877,6 +877,8 @@ def go_offer_landing(
         conn.commit()
     title = html.escape(row["title"])
     partner = html.escape(row["partner_name"])
+    cta_label = ("Conferir preço e disponibilidade na Amazon →"
+                 if row["domain"] == "amazon.com.br" else "Ver oferta no parceiro →")
     safe_query = html.escape(urlencode({"channel": channel, "campaign": campaign}), quote=True)
     return HTMLResponse(f"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -895,9 +897,9 @@ small{{display:block;color:#536172;line-height:1.6;margin-top:18px}}
 </style></head><body><header>Wero1Mercados · Brasil</header>
 <main><span class="tag">Oferta de parceiro</span><h1>{title}</h1>
 <p>Conheça esta oferta no site do parceiro e confira preço, disponibilidade, entrega e condições atualizadas antes de comprar.</p>
-<div class="partner"><strong>Loja parceira:</strong> {partner}</div>
 <form method="post" action="/out/{offer_id}?{safe_query}">
-<button type="submit">Ver oferta no parceiro →</button></form>
+<button type="submit">{cta_label}</button></form>
+<div class="partner"><strong>Loja parceira:</strong> {partner}</div>
 <small>Publicidade / link de associado: compras qualificadas podem gerar comissão. Você será encaminhado ao site do parceiro somente após tocar no botão. A compra e o pagamento são realizados no ambiente do parceiro.</small>
 </main></body></html>""")
 
