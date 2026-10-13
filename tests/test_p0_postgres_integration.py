@@ -1,8 +1,6 @@
 """Actual FastAPI + isolated PostgreSQL route tests; never target production."""
 import os
 import unittest
-import psycopg
-from fastapi.testclient import TestClient
 
 class FunnelPostgresIntegration(unittest.TestCase):
     @classmethod
@@ -10,12 +8,16 @@ class FunnelPostgresIntegration(unittest.TestCase):
         cls.url = os.environ.get("P0_TEST_DATABASE_URL")
         if not cls.url or "localhost" not in cls.url and "127.0.0.1" not in cls.url:
             raise unittest.SkipTest("Isolated localhost P0_TEST_DATABASE_URL required")
+        import psycopg
+        from fastapi.testclient import TestClient
+        cls.psycopg = psycopg
+        cls.TestClient = TestClient
         import main
         main.DATABASE_URL = cls.url
         cls.main = main
-        cls.client = TestClient(main.app)
+        cls.client = cls.TestClient(main.app)
         cls.client.__enter__()
-        with psycopg.connect(cls.url) as conn:
+        with cls.psycopg.connect(cls.url) as conn:
             with conn.cursor() as cur:
                 cur.execute("INSERT INTO partners(name,domain,active) VALUES('Test Amazon','amazon.com.br',TRUE) ON CONFLICT(domain) DO UPDATE SET active=TRUE RETURNING id")
                 pid = cur.fetchone()[0]
@@ -28,7 +30,7 @@ class FunnelPostgresIntegration(unittest.TestCase):
             cls.client.__exit__(None,None,None)
 
     def counts(self):
-        with psycopg.connect(self.url) as conn:
+        with self.psycopg.connect(self.url) as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) FROM offer_landing_visits WHERE offer_id=%s",(self.offer_id,))
                 visits=cur.fetchone()[0]
@@ -57,7 +59,7 @@ class FunnelPostgresIntegration(unittest.TestCase):
         self.main.WERO_ADMIN_TOKEN = "isolated-token"
         r=self.client.post("/api/commercial/conversions/provider",headers={"Authorization":"Bearer isolated-token"},json={"external_id":"synthetic","offer_id":self.offer_id,"status":"confirmed","confirmed_at":"2026-10-13T10:00:00Z"})
         self.assertEqual(r.status_code,403)
-        with psycopg.connect(self.url) as conn:
+        with self.psycopg.connect(self.url) as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) FROM conversions WHERE external_id='synthetic'")
                 self.assertEqual(cur.fetchone()[0],0)
