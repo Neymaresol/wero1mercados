@@ -31,7 +31,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -r requirements.txt httpx
+      - run: pip install -r requirements.txt httpx2
       - name: Compile changed Python
         run: python -m py_compile main.py p0_conversion_gate.py scripts/p0_database_identity.py tests/test_p0_postgres_integration.py
       - name: Offline provenance tests
