@@ -710,6 +710,15 @@ def register_commercial_offer(payload: OfferIn, _admin: None = Depends(require_a
     authorized_url = payload.authorized_url.strip()
     sku = payload.sku.strip()
     validate_authorized_url(authorized_url, partner_domain)
+    # Shopee cannot be registered through the generic auto-activation path.
+    # Manual affiliate evidence must be verified by the dedicated release gate.
+    if partner_domain == "shopee.com.br" or partner_domain.endswith(".shopee.com.br") or partner_domain == "s.shopee.com.br":
+        from integrations.shopee_release_gate import ShopeeReleaseEvidence, evaluate_shopee_release
+        decision = evaluate_shopee_release(ShopeeReleaseEvidence())
+        raise HTTPException(status_code=403, detail={
+            "code": "SHOPEE_RELEASE_BLOCKED",
+            "blocked_by": decision["blocked_by"],
+        })
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT id FROM products WHERE sku=%s AND active=TRUE", (sku,))
