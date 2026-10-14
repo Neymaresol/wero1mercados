@@ -1,13 +1,16 @@
-name: P0 database identity Double Check
+name: P0 Shopee database and release Double Check
 on:
   pull_request:
     paths:
       - 'integrations/db_identity_doublecheck.py'
+      - 'integrations/shopee_release_gate.py'
       - 'tests/test_db_identity_doublecheck.py'
+      - 'tests/test_shopee_release_gate.py'
+      - 'tests/test_shopee_identity_release_integration.py'
       - '.github/workflows/p0-db-identity.yml'
   workflow_dispatch:
 jobs:
-  identity-tests:
+  identity-and-release-tests:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -18,7 +21,7 @@ jobs:
           python-version: '3.12'
       - name: Install pytest
         run: python -m pip install pytest
-      - name: Compile identity module
-        run: python -m py_compile integrations/db_identity_doublecheck.py
-      - name: Run isolated identity tests
-        run: python -m pytest -q tests/test_db_identity_doublecheck.py
+      - name: Compile guarded modules
+        run: python -m py_compile integrations/db_identity_doublecheck.py integrations/shopee_release_gate.py
+      - name: Run database identity and Shopee release tests
+        run: python -m pytest -q tests/test_db_identity_doublecheck.py tests/test_shopee_release_gate.py tests/test_shopee_identity_release_integration.py
