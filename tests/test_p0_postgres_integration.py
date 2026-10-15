@@ -21,7 +21,7 @@ class FunnelPostgresIntegration(unittest.TestCase):
             with conn.cursor() as cur:
                 cur.execute("INSERT INTO partners(name,domain,active) VALUES('Test Amazon','amazon.com.br',TRUE) ON CONFLICT(domain) DO UPDATE SET active=TRUE RETURNING id")
                 pid = cur.fetchone()[0]
-                cur.execute("INSERT INTO offers(partner_id,title,authorized_url,active) VALUES(%s,%s,%s,TRUE) RETURNING id",(pid,"Isolated test offer","https://www.amazon.com.br/test",))
+                cur.execute("INSERT INTO offers(partner_id,title,authorized_url,active) VALUES(%s,%s,%s,TRUE) RETURNING id",(pid,"Isolated test offer","https://www.amazon.com.br/test?tag=isolated-ci-20",))
                 cls.offer_id = cur.fetchone()[0]
 
     @classmethod
