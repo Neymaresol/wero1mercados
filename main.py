@@ -1283,6 +1283,43 @@ def werozinha_one_click_amazon(
     return RedirectResponse(target, status_code=302)
 
 
+@app.get("/api/werozinha/partners")
+def werozinha_partner_storefront():
+    """Read-only, fail-closed multi-partner storefront; never expose affiliate URLs."""
+    from p0_partner_isolation import eligible_partner_offer
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT o.id,o.title,o.authorized_url,o.active AS offer_active,
+                                  p.id AS partner_id,p.name AS partner_name,p.domain,
+                                  p.active AS partner_active
+                           FROM offers o JOIN partners p ON p.id=o.partner_id
+                           WHERE o.active=TRUE AND p.active=TRUE
+                           ORDER BY p.id,o.id DESC LIMIT 500""")
+            rows = cur.fetchall()
+    partners = {}
+    for item in rows:
+        try:
+            validate_authorized_url(item["authorized_url"], item["domain"])
+            if not eligible_partner_offer(item):
+                continue
+        except (HTTPException, ValueError, TypeError, KeyError):
+            continue
+        partner_id = int(item["partner_id"])
+        entry = partners.setdefault(partner_id, {
+            "partner_id": partner_id,
+            "partner_name": str(item["partner_name"]),
+            "partner_domain": str(item["domain"]),
+            "offers": [],
+        })
+        entry["offers"].append({
+            "offer_id": int(item["id"]),
+            "title": str(item["title"]),
+            "landing_path": "/go/" + str(int(item["id"])) + "?channel=social&campaign=werozinha",
+        })
+    return {"partners": list(partners.values()), "affiliate_urls_exposed": False,
+            "financial_rule": "Comissoes apenas por confirmacao autenticada do parceiro."}
+
+
 @app.get("/vitrine", response_class=HTMLResponse)
 @app.get("/campanha/werozinha", response_class=HTMLResponse)
 def werozinha_amazon_campaign():
