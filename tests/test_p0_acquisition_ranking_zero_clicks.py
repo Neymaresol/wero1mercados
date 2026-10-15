@@ -15,4 +15,4 @@ def test_acquisition_ranking_requires_observed_clicks():
     # Eligibility is not engagement: zero-click offers must be excluded from
     # the priority campaign queue until explicitly handled as exploration.
     assert "COUNT(c.id) AS clicks" in body
-    assert "HAVING COUNT(c.id) > 0" in body.upper() or "if int(r[\"clicks\"]) > 0" in body
+    assert "HAVING COUNT(C.ID) > 0" in body.upper() or "if int(r[\"clicks\"]) > 0" in body
