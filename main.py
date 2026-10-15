@@ -1033,6 +1033,7 @@ def acquisition():
                            FROM offers o LEFT JOIN clicks c ON c.offer_id=o.id
                            JOIN partners p ON p.id=o.partner_id
                            WHERE o.active=TRUE AND p.active=TRUE GROUP BY o.id
+                           HAVING COUNT(c.id) > 0
                            ORDER BY clicks DESC,o.commission_brl DESC NULLS LAST,o.id""")
             rows=cur.fetchall()
             cur.execute("SELECT COUNT(*) AS c FROM catalog_visits")
