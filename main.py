@@ -633,6 +633,19 @@ def p0_db_identity(_admin: None = Depends(require_admin)):
         raise HTTPException(status_code=503, detail="Database identity unavailable")
 
 
+@app.get("/api/p0/shopee-readiness")
+def p0_shopee_readiness(_admin: None = Depends(require_admin)):
+    """Admin-only SELECT audit; never triggers affiliate traffic or activation."""
+    from p0_shopee_readiness import inspect_shopee
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET TRANSACTION READ ONLY")
+                return inspect_shopee(cur)
+    except (psycopg.Error, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail="shopee_readiness_unavailable") from exc
+
+
 @app.get("/api/p0/funnel-audit")
 def p0_funnel_audit(_admin: None = Depends(require_admin)):
     """Authenticated SELECT-only evidence for active offers 164 and 802.
