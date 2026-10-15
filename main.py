@@ -1273,6 +1273,9 @@ def werozinha_one_click_amazon(
             if not row or not row["active"] or not row["partner_active"]:
                 raise HTTPException(status_code=404, detail="Oferta indisponivel")
             validate_authorized_url(row["authorized_url"], row["domain"])
+            from p0_amazon_affiliate_gate import amazon_affiliate_tag
+            if not amazon_affiliate_tag(row["authorized_url"]):
+                raise HTTPException(status_code=409, detail="Link Amazon sem identificador de afiliado verificavel")
             cur.execute(
                 """INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at)
                    VALUES(%s,%s,%s,%s,NOW())""",
