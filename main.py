@@ -734,6 +734,17 @@ def validate_authorized_url(url: str, domain: str):
         raise HTTPException(status_code=400, detail="Destino nao autorizado")
 
 
+def require_affiliate_attribution(url: str, domain: str):
+    """Do not advertise an Amazon URL without an affiliate tracking tag.
+
+    A valid tag alone does not prove account ownership or an eligible order.
+    """
+    if domain == "amazon.com.br":
+        from p0_amazon_affiliate_gate import amazon_affiliate_tag
+        if not amazon_affiliate_tag(url):
+            raise HTTPException(status_code=409, detail="Link Amazon sem tag de afiliado valida")
+
+
 @app.post("/api/commercial/offers")
 def register_commercial_offer(payload: OfferIn, _admin: None = Depends(require_admin)):
     partner_name = payload.partner_name.strip()
@@ -903,6 +914,7 @@ def go_offer_landing(
     if not row or not row["active"] or not row["partner_active"]:
         raise HTTPException(status_code=404, detail="Oferta indisponivel")
     validate_authorized_url(row["authorized_url"], row["domain"])
+    require_affiliate_attribution(row["authorized_url"], row["domain"])
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -960,6 +972,7 @@ def confirm_offer_click(
             if not row or not row["active"] or not row["partner_active"]:
                 raise HTTPException(status_code=404, detail="Oferta indisponivel")
             validate_authorized_url(row["authorized_url"], row["domain"])
+            require_affiliate_attribution(row["authorized_url"], row["domain"])
             cur.execute(
                 """INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at)
                    VALUES(%s,%s,%s,%s,NOW())""",
@@ -1310,6 +1323,7 @@ def werozinha_amazon_campaign():
             continue
         try:
             validate_authorized_url(item["authorized_url"], item["domain"])
+            require_affiliate_attribution(item["authorized_url"], item["domain"])
         except (HTTPException, ValueError):
             continue
         target = "/campanha/werozinha/amazon/" + str(int(item["id"])) + "?channel=social&campaign=werozinha-amazon"
