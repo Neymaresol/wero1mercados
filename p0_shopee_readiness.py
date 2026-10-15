@@ -18,6 +18,7 @@ def inspect_shopee(cur):
         parsed = urlparse(url)
         host = (parsed.hostname or "").lower()
         domain = (row["domain"] or "").lower()
+        short_link = host == "s.shopee.com.br"
         safe = parsed.scheme == "https" and parsed.username is None and parsed.password is None and parsed.port in (None, 443) and domain == "shopee.com.br" and (host == domain or host.endswith("." + domain))
-        result.append({"offer_id": row["id"], "partner_active": bool(row["partner_active"]), "offer_active": bool(row["offer_active"]), "destination_allowed": safe, "ready_for_traffic": bool(row["partner_active"] and row["offer_active"] and safe), "attribution_verified": False})
-    return {"partner": "Shopee Brasil", "offers": result, "attribution_verified": False, "production_release_approved": False, "note": "Affiliate attribution requires external provider evidence; never infer from active flags."}
+        result.append({"offer_id": row["id"], "short_link_requires_destination_verification": short_link, "partner_active": bool(row["partner_active"]), "offer_active": bool(row["offer_active"]), "destination_allowed": safe, "ready_for_traffic": bool(row["partner_active"] and row["offer_active"] and safe and not short_link), "attribution_verified": False})
+    return {"partner": "Shopee Brasil", "offers": result, "attribution_verified": False, "production_release_approved": False, "note": "Short links require verified final destination and provider attribution evidence before traffic; never infer from active flags."}
