@@ -615,6 +615,24 @@ def require_admin(credentials: HTTPAuthorizationCredentials | None = Depends(adm
         raise HTTPException(status_code=401, detail="Nao autorizado")
 
 
+@app.get("/api/p0/db-identity")
+def p0_db_identity(_admin: None = Depends(require_admin)):
+    """Read-only, authenticated DB identity; never exposes connection secrets."""
+    import hashlib
+    import hmac
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT current_database(), current_schema(), inet_server_addr()::text, inet_server_port()")
+                database_name, schema_name, server_addr, server_port = cur.fetchone()
+        identity = "|".join(str(x or "") for x in (database_name, schema_name, server_addr, server_port))
+        fingerprint = hmac.new(WERO_ADMIN_TOKEN.encode(), identity.encode(), hashlib.sha256).hexdigest()[:20]
+        return {"status": "ok", "storage": "postgresql", "fingerprint": fingerprint, "database_ok": True,
+                "note": "Compare fingerprints across environments using the same admin token; no connection details exposed."}
+    except Exception:
+        raise HTTPException(status_code=503, detail="Database identity unavailable")
+
+
 @app.get("/api/p0/funnel-audit")
 def p0_funnel_audit(_admin: None = Depends(require_admin)):
     """Authenticated SELECT-only evidence for active offers 164 and 802.
