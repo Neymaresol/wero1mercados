@@ -1,7 +1,8 @@
 """PARADIGMA TAG 01/02: deterministic campaign attribution; no external API calls."""
 from urllib.parse import urlparse
 
-ALLOWED_CHANNELS = frozenset({"google", "chatgpt", "bing", "organic", "instagram", "facebook", "tiktok", "creator", "direct"})
+# Channel labels are untrusted metadata, never evidence of a verified referral.
+ALLOWED_CHANNELS = frozenset({"google", "chatgpt", "bing", "organic", "instagram", "facebook", "tiktok", "creator", "direct", "campaign", "catalogo"})
 SEARCH_CHANNELS = frozenset({"google", "chatgpt", "bing", "organic"})
 SOCIAL_CHANNELS = frozenset({"instagram", "facebook", "tiktok", "creator"})
 
