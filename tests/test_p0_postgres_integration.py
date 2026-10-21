@@ -45,7 +45,7 @@ class FunnelPostgresIntegration(unittest.TestCase):
         self.assertEqual(self.counts(),(before[0]+1,before[1]))
         out=self.client.post(f"/out/{self.offer_id}?channel=test&campaign=p0",follow_redirects=False)
         self.assertEqual(out.status_code,303)
-        self.assertEqual(out.headers["location"],"https://www.amazon.com.br/test")
+        self.assertEqual(out.headers["location"],"https://www.amazon.com.br/test?tag=isolated-ci-20")
         self.assertEqual(self.counts(),(before[0]+1,before[1]+1))
 
     def test_invalid_offer_no_click(self):
