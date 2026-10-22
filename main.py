@@ -1247,6 +1247,7 @@ def premium_ai_ranking(
                 WHERE o.active=TRUE AND p.active=TRUE
                 GROUP BY o.id,o.title,p.name
                 HAVING COUNT(c.id) > 0
+                   AND COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') > 0
                 ORDER BY clicks_7d DESC, tracked_clicks DESC, o.id ASC
                 LIMIT %s
             """, (limit,))
