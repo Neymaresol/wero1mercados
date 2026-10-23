@@ -1258,6 +1258,10 @@ def premium_ai_ranking(
         preferred = priority != "balanced" and priority in item["partner"].lower()
         return (-int(item["clicks_7d"]), -int(item["tracked_clicks"]), -int(preferred), int(item["offer_id"]))
     offers.sort(key=rank)
+    # Fail closed: clicks are not independently authenticated INT.1/INT.2 evidence.
+    # Until a trusted evidence store is integrated, no offer is INT-qualified.
+    from intent_ranking_gate import filter_verified_intent_offers
+    offers = filter_verified_intent_offers(offers, evidence_by_offer={})
     return {
         "service": SERVICE, "version": VERSION,
         "mode": "read_only", "priority": priority,
