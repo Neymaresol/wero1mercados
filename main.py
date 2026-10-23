@@ -1256,14 +1256,18 @@ def premium_ai_ranking(
         preferred = priority != "balanced" and priority in item["partner"].lower()
         return (-int(item["clicks_7d"]), -int(item["tracked_clicks"]), -int(preferred), int(item["offer_id"]))
     offers.sort(key=rank)
+    # Public clicks cannot establish independently authenticated INT.1/INT.2.
+    from int_qualification import filter_int_qualified_offers, INT_GATE_STATUS
+    qualified_offers = filter_int_qualified_offers(offers)
     return {
         "service": SERVICE, "version": VERSION,
         "mode": "read_only", "priority": priority,
         "ai_review_mode": settings.get("ai_review_mode", "manual"),
-        "ranking_basis": "real tracked outbound clicks; no predicted or invented sales",
-        "publication_status": "NOT_CONNECTED",
-        "offers": offers,
-        "note": "Advisory ranking only; no posting, offer changes, or automated purchases.",
+        "ranking_basis": "INT.1/INT.2 unavailable: public click counts are not authenticated intent",
+        "publication_status": INT_GATE_STATUS,
+        "offers": qualified_offers,
+        "excluded_unverified_offers": len(offers),
+        "note": "INT-qualified ranking disabled until independently authenticated server events are available; no sales or commissions inferred.",
     }
 
 
