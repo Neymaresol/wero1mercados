@@ -1246,6 +1246,8 @@ def premium_ai_ranking(
                 LEFT JOIN clicks c ON c.offer_id=o.id
                 WHERE o.active=TRUE AND p.active=TRUE
                 GROUP BY o.id,o.title,p.name
+                HAVING COUNT(c.id) > 0
+                   AND COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') > 0
                 ORDER BY clicks_7d DESC, tracked_clicks DESC, o.id ASC
                 LIMIT %s
             """, (limit,))
@@ -1256,6 +1258,10 @@ def premium_ai_ranking(
         preferred = priority != "balanced" and priority in item["partner"].lower()
         return (-int(item["clicks_7d"]), -int(item["tracked_clicks"]), -int(preferred), int(item["offer_id"]))
     offers.sort(key=rank)
+    # Fail closed: clicks are not independently authenticated INT.1/INT.2 evidence.
+    # Until a trusted evidence store is integrated, no offer is INT-qualified.
+    from intent_ranking_gate import filter_verified_intent_offers
+    offers = filter_verified_intent_offers(offers, evidence_by_offer={})
     return {
         "service": SERVICE, "version": VERSION,
         "mode": "read_only", "priority": priority,
@@ -1297,6 +1303,39 @@ def werozinha_one_click_amazon(
             target = row["authorized_url"]
         conn.commit()
     return RedirectResponse(target, status_code=302)
+
+
+@app.get("/vitrine/shopee", response_class=HTMLResponse)
+def werozinha_shopee_campaign():
+    """Shopee-only storefront: validate each authorized affiliate destination."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT o.id, o.title, o.authorized_url, p.domain
+                FROM offers o JOIN partners p ON p.id=o.partner_id
+                WHERE o.active=TRUE AND p.active=TRUE
+                  AND (p.domain='shopee.com.br' OR p.domain='s.shopee.com.br')
+                ORDER BY o.id DESC LIMIT 60""")
+            rows = cur.fetchall()
+    cards = []
+    for item in rows:
+        try:
+            validate_authorized_url(item["authorized_url"], item["domain"])
+            require_affiliate_attribution(item["authorized_url"], item["domain"])
+        except (HTTPException, ValueError):
+            continue
+        offer_id = int(item["id"])
+        title = html.escape(str(item["title"]))
+        cards.append('<article><h2>' + title + '</h2><a href="/go/' +
+                     str(offer_id) + '?channel=vitrine-shopee">Ver oferta Shopee</a></article>')
+    content = "".join(cards) or "<p>Nenhuma oferta Shopee autorizada disponível.</p>"
+    return HTMLResponse('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">' +
+                        '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+                        '<title>Werozinha | Shopee</title><style>body{font:16px system-ui;' +
+                        'background:#101b30;color:white;max-width:760px;margin:auto;padding:24px}' +
+                        'article{border:1px solid #ff8a32;border-radius:14px;padding:18px;margin:12px 0}' +
+                        'a{color:#ffb65e}</style></head><body><h1>Werozinha · Shopee</h1>' +
+                        '<p>Ofertas Shopee autorizadas. Compras realizadas no parceiro.</p>' +
+                        content + '</body></html>')
 
 
 @app.get("/vitrine", response_class=HTMLResponse)
