@@ -1232,7 +1232,7 @@ def premium_ai_ranking(
     limit: int = Query(default=12, ge=1, le=100),
     _admin: None = Depends(require_admin),
 ):
-    """Safe read-only ranking using confirmed local click events, never fake conversions."""
+    """Rank only offers with real outbound clicks in the last 7 days; never fake conversions."""
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT key,value FROM premium_settings WHERE key IN ('campaign_priority','ai_review_mode')")
@@ -1246,6 +1246,8 @@ def premium_ai_ranking(
                 LEFT JOIN clicks c ON c.offer_id=o.id
                 WHERE o.active=TRUE AND p.active=TRUE
                 GROUP BY o.id,o.title,p.name
+                HAVING COUNT(c.id) > 0
+                   AND COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') > 0
                 ORDER BY clicks_7d DESC, tracked_clicks DESC, o.id ASC
                 LIMIT %s
             """, (limit,))
@@ -1260,7 +1262,7 @@ def premium_ai_ranking(
         "service": SERVICE, "version": VERSION,
         "mode": "read_only", "priority": priority,
         "ai_review_mode": settings.get("ai_review_mode", "manual"),
-        "ranking_basis": "real tracked outbound clicks; no predicted or invented sales",
+        "ranking_basis": "real outbound clicks in the last 7 days; zero-engagement offers excluded; no predicted sales",
         "publication_status": "NOT_CONNECTED",
         "offers": offers,
         "note": "Advisory ranking only; no posting, offer changes, or automated purchases.",
