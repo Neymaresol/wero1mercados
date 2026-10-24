@@ -425,7 +425,7 @@ def ready():
     """
     report = health()
     return JSONResponse(
-        status_code=200 if report["status"] == "ok" and report["database_ok"] is True else 503,
+        status_code=200 if (report["status"] == "ok" and report["database_ok"] is True and report["storage_persistent"] is True) else 503,
         content=report,
     )
 
