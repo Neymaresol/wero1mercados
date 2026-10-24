@@ -1246,6 +1246,7 @@ def premium_ai_ranking(
                 LEFT JOIN clicks c ON c.offer_id=o.id
                 WHERE o.active=TRUE AND p.active=TRUE
                 GROUP BY o.id,o.title,p.name
+                HAVING COUNT(c.id) > 0
                 ORDER BY clicks_7d DESC, tracked_clicks DESC, o.id ASC
                 LIMIT %s
             """, (limit,))
@@ -1260,7 +1261,8 @@ def premium_ai_ranking(
         "service": SERVICE, "version": VERSION,
         "mode": "read_only", "priority": priority,
         "ai_review_mode": settings.get("ai_review_mode", "manual"),
-        "ranking_basis": "real tracked outbound clicks; no predicted or invented sales",
+        "ranking_basis": "nonzero tracked outbound clicks only; not verified sales or INT.1/INT.2 scores",
+        "zero_evidence_policy": "exclude from advisory ranking; keep authorized offers in catalog",
         "publication_status": "NOT_CONNECTED",
         "offers": offers,
         "note": "Advisory ranking only; no posting, offer changes, or automated purchases.",
