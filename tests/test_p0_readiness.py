@@ -32,6 +32,13 @@ class ReadinessProbeTests(unittest.TestCase):
             response = main.ready()
         self.assertEqual(response.status_code, 503)
 
+    def test_false_storage_persistence_never_returns_http_200(self):
+        with patch.object(main, "health", return_value={
+            "status": "ok", "database_ok": True, "storage_persistent": False
+        }):
+            response = main.ready()
+        self.assertEqual(response.status_code, 503)
+
     def test_false_database_ok_never_returns_http_200(self):
         with patch.object(main, "health", return_value={
             "status": "ok", "database_ok": False, "storage_persistent": False
