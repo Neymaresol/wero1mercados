@@ -1268,6 +1268,8 @@ def premium_ai_ranking(
         "ranking_basis": "INT.1/INT.2 unavailable: public click counts are not authenticated intent",
         "publication_status": INT_GATE_STATUS,
         "offers": qualified_offers,
+        "consultative_offers": offers,
+        "consultative_ranking_basis": "Public outbound clicks in the last 7 days; NOT INT-qualified, sales, or commissions",
         "excluded_unverified_offers": len(offers),
         "note": "INT-qualified ranking disabled until independently authenticated server events are available; no sales or commissions inferred.",
     }
