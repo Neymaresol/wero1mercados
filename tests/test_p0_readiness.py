@@ -35,7 +35,7 @@ class ReadinessProbeTests(unittest.TestCase):
         tree = ast.parse(source)
         fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "ready")
         route = ast.get_source_segment(source, fn)
-        self.assertIn('app.get("/ready"', route)
+        self.assertIn('@app.get("/ready", include_in_schema=False)', source)
         self.assertIn("report = health()", route)
         self.assertIn("readiness_http_status(report)", route)
         self.assertIn("JSONResponse(status_code=", route)
