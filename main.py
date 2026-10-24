@@ -423,11 +423,9 @@ def ready():
     Does not expose DATABASE_URL or modify the existing /health contract.
     Do not configure Render's healthCheckPath until staging and rollback pass.
     """
+    from p0_readiness import readiness_http_status
     report = health()
-    return JSONResponse(
-        status_code=200 if (report["status"] == "ok" and report["database_ok"] is True and report["storage_persistent"] is True) else 503,
-        content=report,
-    )
+    return JSONResponse(status_code=readiness_http_status(report), content=report)
 
 
 @app.get("/assets/werozinha-3d.png", include_in_schema=False)
