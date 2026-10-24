@@ -34,3 +34,17 @@ def test_clicks_and_caller_claims_cannot_qualify_int():
     assert filter_int_qualified_offers(offers) == []
     assert INT_GATE_STATUS == "BLOCKED_NO_VERIFIED_EVENT_PIPELINE"
     assert offers[0]["tracked_clicks"] == 82
+
+
+def test_consultative_signals_are_separate_from_int_qualification():
+    """Recent clicks stay visible for human review but never qualify INT."""
+    tree = ast.parse(SOURCE)
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+              and n.name == "premium_ai_ranking")
+    body = ast.get_source_segment(SOURCE, fn)
+    assert '"consultative_offers": offers' in body
+    assert '"offers": qualified_offers' in body
+    assert '"publication_status": INT_GATE_STATUS' in body
+    assert '"excluded_unverified_offers": len(offers)' in body
+    assert '"NOT INT-qualified' in body
+    assert filter_int_qualified_offers([{"offer_id": 4, "clicks_7d": 7}]) == []
