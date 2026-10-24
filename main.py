@@ -16,7 +16,7 @@ from decimal import Decimal
 import secrets
 import html
 import time
-from fastapi.responses import RedirectResponse, HTMLResponse, Response
+from fastapi.responses import RedirectResponse, HTMLResponse, Response, JSONResponse
 
 VERSION = "1.14.15-BR-rc1"
 SERVICE = "wero1mercados"
@@ -414,6 +414,20 @@ def health():
         "database_ok": database_ok,
         "time": now_iso(),
     }
+
+
+@app.get("/ready", include_in_schema=False)
+def ready():
+    """Database-backed readiness: HTTP 503 when the existing health probe degrades.
+
+    Does not expose DATABASE_URL or modify the existing /health contract.
+    Do not configure Render's healthCheckPath until staging and rollback pass.
+    """
+    report = health()
+    return JSONResponse(
+        status_code=200 if report["status"] == "ok" and report["database_ok"] is True else 503,
+        content=report,
+    )
 
 
 @app.get("/assets/werozinha-3d.png", include_in_schema=False)
