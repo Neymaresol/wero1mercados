@@ -46,5 +46,5 @@ def test_consultative_signals_are_separate_from_int_qualification():
     assert '"offers": qualified_offers' in body
     assert '"publication_status": INT_GATE_STATUS' in body
     assert '"excluded_unverified_offers": len(offers)' in body
-    assert '"NOT INT-qualified' in body
+    assert "NOT INT-qualified" in body
     assert filter_int_qualified_offers([{"offer_id": 4, "clicks_7d": 7}]) == []
