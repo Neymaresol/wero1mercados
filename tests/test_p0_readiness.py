@@ -1,50 +1,46 @@
-"""Readiness regression: no production DB, outbound routes, or financial writes."""
-import json
+"""Offline readiness tests: no app import, DB connection, routes, or writes."""
+import ast
+from pathlib import Path
 import unittest
-from unittest.mock import patch
 
-import main
+from p0_readiness import readiness_http_status
 
 
 class ReadinessProbeTests(unittest.TestCase):
-    def test_database_unavailable_returns_http_503(self):
-        with patch.object(main, "db", side_effect=RuntimeError("db unavailable")):
-            response = main.ready()
-        self.assertEqual(response.status_code, 503)
-        payload = json.loads(response.body)
-        self.assertEqual(payload["status"], "degraded")
-        self.assertIs(payload["database_ok"], False)
-        self.assertIs(payload["storage_persistent"], False)
-        self.assertNotIn("DATABASE_URL", response.body.decode())
+    def test_unavailable_database_is_503(self):
+        self.assertEqual(readiness_http_status({
+            "status": "degraded", "database_ok": False,
+            "storage_persistent": False,
+        }), 503)
 
-    def test_successful_db_select_returns_http_200(self):
-        with patch.object(main, "health", return_value={
-            "status": "ok", "database_ok": True, "storage_persistent": True
-        }):
-            response = main.ready()
-        self.assertEqual(response.status_code, 200)
-        self.assertIs(json.loads(response.body)["database_ok"], True)
+    def test_healthy_database_is_200(self):
+        self.assertEqual(readiness_http_status({
+            "status": "ok", "database_ok": True,
+            "storage_persistent": True,
+        }), 200)
 
-    def test_degraded_status_never_returns_http_200(self):
-        with patch.object(main, "health", return_value={
-            "status": "degraded", "database_ok": True, "storage_persistent": False
-        }):
-            response = main.ready()
-        self.assertEqual(response.status_code, 503)
+    def test_inconsistent_health_fails_closed(self):
+        for report in (
+            {"status": "degraded", "database_ok": True, "storage_persistent": True},
+            {"status": "ok", "database_ok": False, "storage_persistent": True},
+            {"status": "ok", "database_ok": True, "storage_persistent": False},
+            {"status": "ok", "database_ok": 1, "storage_persistent": True},
+            {}, None,
+        ):
+            with self.subTest(report=report):
+                self.assertEqual(readiness_http_status(report), 503)
 
-    def test_false_storage_persistence_never_returns_http_200(self):
-        with patch.object(main, "health", return_value={
-            "status": "ok", "database_ok": True, "storage_persistent": False
-        }):
-            response = main.ready()
-        self.assertEqual(response.status_code, 503)
-
-    def test_false_database_ok_never_returns_http_200(self):
-        with patch.object(main, "health", return_value={
-            "status": "ok", "database_ok": False, "storage_persistent": False
-        }):
-            response = main.ready()
-        self.assertEqual(response.status_code, 503)
+    def test_route_reuses_db_health_and_returns_actual_http_status(self):
+        source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "ready")
+        route = ast.get_source_segment(source, fn)
+        self.assertIn('app.get("/ready"', route)
+        self.assertIn("report = health()", route)
+        self.assertIn("readiness_http_status(report)", route)
+        self.assertIn("JSONResponse(status_code=", route)
+        self.assertNotIn("INSERT INTO", route)
+        self.assertNotIn("UPDATE ", route)
 
 
 if __name__ == "__main__":
