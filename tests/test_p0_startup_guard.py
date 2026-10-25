@@ -119,6 +119,27 @@ class GuardTests(unittest.TestCase):
                     required_host_suffix=".neon.tech",
                 )
 
+    def test_runtime_database_url_mismatch_fails_before_probe(self):
+        env = {
+            "WERO_MODE": "homologation",
+            "DATABASE_URL": "postgresql://u:secret@ep-staging.aws.neon.tech/neondb",
+            "EXPECTED_DATABASE_NAME": "neondb",
+            "EXPECTED_DATABASE_HOST": "ep-staging.aws.neon.tech",
+        }
+        with patch.dict("os.environ", env, clear=True):
+            with patch("p0_startup_guard.verify_prewrite_database") as verifier:
+                with self.assertRaisesRegex(RuntimeError, "runtime configuration mismatch"):
+                    check_startup_database("postgresql://u:secret@db.oregon-postgres.render.com/wero1mercados", "homologation")
+                verifier.assert_not_called()
+
+    def test_runtime_mode_mismatch_fails_before_probe(self):
+        env = {"WERO_MODE": "homologation", "DATABASE_URL": DSN}
+        with patch.dict("os.environ", env, clear=True):
+            with patch("p0_startup_guard.verify_prewrite_database") as verifier:
+                with self.assertRaisesRegex(RuntimeError, "runtime configuration mismatch"):
+                    check_startup_database(DSN, "production")
+                verifier.assert_not_called()
+
     def test_invalid_mode_blocks_before_database_probe(self):
         with patch.dict("os.environ", {"WERO_MODE": "unknown"}, clear=True):
             with patch("p0_startup_guard.verify_prewrite_database") as verifier:
@@ -137,6 +158,11 @@ class GuardTests(unittest.TestCase):
             "check_startup_database", "init_db", "seed_amazon_campaigns",
             "seed_additional_amazon_campaigns",
         ])
+        guard_call = next(n.value for n in startup.body if isinstance(n, ast.Expr)
+                          and isinstance(n.value, ast.Call)
+                          and isinstance(n.value.func, ast.Name)
+                          and n.value.func.id == "check_startup_database")
+        self.assertEqual([arg.id for arg in guard_call.args], ["DATABASE_URL", "WERO_MODE"])
 
 
 if __name__ == "__main__":
