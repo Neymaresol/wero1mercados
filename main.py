@@ -384,6 +384,10 @@ def seed_amazon_campaigns():
 
 @app.on_event("startup")
 def startup():
+    # P0: never run schema repair or catalog seed against an unverified DB.
+    # Missing per-environment configuration must fail closed before writes.
+    from p0_startup_guard import check_startup_database
+    check_startup_database()
     init_db()
     seed_amazon_campaigns()
     seed_additional_amazon_campaigns()
