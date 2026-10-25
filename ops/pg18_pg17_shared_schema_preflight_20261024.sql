@@ -1,5 +1,5 @@
 -- PARADIGMA Wero1Mercados | PostgreSQL 18/17 shared-schema preflight
--- 2026-10-24 22:15 BRT | READ ONLY (single SELECT, no DDL/DML)
+-- 2026-10-24 22:12 BRT | READ ONLY (single SELECT, no DDL/DML)
 -- Run separately on Render production and Neon staging; compare per-table rows.
 -- For the 11 shared tables, column_hash, index_hash, n_* and
 -- constraint_type_hash should agree. Staging has two additional audit tables.
