@@ -43,15 +43,20 @@ def verify_prewrite_database(database_url, expected_name, expected_host, connect
         raise RuntimeError("P0 startup blocked: database preflight not verified") from None
 
 
-def check_startup_database():
+def check_startup_database(database_url_in_use=None, mode_in_use=None):
     # A staging service must never accept the Render production database host,
     # even if EXPECTED_DATABASE_HOST was copied from production by mistake.
     # This is an extra provider boundary, NOT physical-instance proof.
     mode = os.getenv("WERO_MODE", "homologation").strip().lower()
+    configured_url = os.getenv("DATABASE_URL", "")
+    # Guard the exact connection string cached by main.py at import time.
+    # An environment value checked later is not sufficient if it changed.
+    if (database_url_in_use is not None and database_url_in_use != configured_url) or (mode_in_use is not None and mode_in_use != mode):
+        raise RuntimeError("P0 startup blocked: runtime configuration mismatch")
     if mode not in ("production", "homologation"):
         raise RuntimeError("P0 startup blocked: invalid deployment mode")
     verify_prewrite_database(
-        os.getenv("DATABASE_URL", ""),
+        configured_url,
         os.getenv("EXPECTED_DATABASE_NAME", ""),
         os.getenv("EXPECTED_DATABASE_HOST", ""),
         required_host_suffix=".neon.tech" if mode == "homologation" else None,
