@@ -1274,6 +1274,10 @@ def werozinha_one_click_amazon(
     campaign: str = Query(default="werozinha-amazon", max_length=80),
 ):
     """Single-tap Amazon redirect for approved Werozinha campaign offers."""
+    # Query parameters are unverified labels, never proof of a real referrer.
+    # Apply the same fail-closed normalization used by /go/ and /out/.
+    channel = classify_channel(channel)
+    campaign = safe_campaign(campaign)
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
