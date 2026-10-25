@@ -5,8 +5,7 @@ configured for each environment. A matching name/schema/host does not prove
 physical instance identity, persistence, or a recoverable backup.
 """
 import os
-import psycopg
-from psycopg.conninfo import conninfo_to_dict
+from urllib.parse import urlsplit, parse_qsl
 from ops.p0_db_identity_preflight import QUERY, evaluate
 
 
@@ -17,16 +16,21 @@ def verify_prewrite_database(database_url, expected_name, expected_host, connect
                for v in (database_url, expected_name, expected_host)):
         raise blocked
     try:
-        params = conninfo_to_dict(database_url)
-        host = params.get("host", "").lower().rstrip(".")
+        parsed = urlsplit(database_url)
+        params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        host = (parsed.hostname or "").lower().rstrip(".")
         expected = expected_host.strip().lower().rstrip(".")
         # libpq hostaddr/service can silently redirect a connection elsewhere.
-        if (not host or host != expected or
-                params.get("hostaddr") or params.get("service") or
-                params.get("servicefile") or os.getenv("PGHOSTADDR") or
-                os.getenv("PGSERVICE")):
+        if (parsed.scheme not in ("postgres", "postgresql") or
+                not host or "," in host or "," in expected or host != expected or
+                any(k in params for k in ("host", "hostaddr", "service", "servicefile")) or
+                os.getenv("PGHOSTADDR") or os.getenv("PGSERVICE")):
             raise blocked
-        connector = connect if connect is not None else psycopg.connect
+        if connect is None:
+            import psycopg  # lazy: offline CI does not install DB drivers
+            connector = psycopg.connect
+        else:
+            connector = connect
         with connector(database_url, connect_timeout=5,
                        options="-c default_transaction_read_only=on") as conn:
             with conn.cursor() as cur:
