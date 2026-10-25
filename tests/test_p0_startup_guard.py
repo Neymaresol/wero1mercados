@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from p0_startup_guard import verify_prewrite_database
+from p0_startup_guard import verify_prewrite_database, check_startup_database
 
 DSN = "postgresql://user:secret@staging.example.test:5432/neondb"
 GOOD = ("neondb", True, True, True, True)
@@ -82,6 +82,49 @@ class GuardTests(unittest.TestCase):
         verify_prewrite_database(DSN, "neondb", "staging.example.test", connect=connect)
         self.assertEqual(len(conn.cursor_obj.queries), 1)
         self.assertIn("default_transaction_read_only=on", calls[0][1]["options"])
+
+    def test_homologation_rejects_render_host_even_if_expected_matches(self):
+        called = []
+        render_dsn = "postgresql://user:secret@db.oregon-postgres.render.com:5432/neondb"
+        with self.assertRaisesRegex(RuntimeError, "P0 startup blocked"):
+            verify_prewrite_database(
+                render_dsn, "neondb", "db.oregon-postgres.render.com",
+                connect=lambda *args, **kwargs: called.append(1),
+                required_host_suffix=".neon.tech",
+            )
+        self.assertEqual(called, [])
+
+    def test_homologation_accepts_neon_host_for_readonly_probe(self):
+        neon_dsn = "postgresql://user:secret@ep-test.us-east-2.aws.neon.tech/neondb"
+        conn = Connection(GOOD)
+        verify_prewrite_database(
+            neon_dsn, "neondb", "ep-test.us-east-2.aws.neon.tech",
+            connect=lambda *args, **kwargs: conn,
+            required_host_suffix=".neon.tech",
+        )
+        self.assertEqual(len(conn.cursor_obj.queries), 1)
+
+    def test_startup_mode_enforces_staging_provider_boundary(self):
+        env = {
+            "WERO_MODE": "homologation",
+            "DATABASE_URL": "postgresql://u:secret@ep-test.aws.neon.tech/neondb",
+            "EXPECTED_DATABASE_NAME": "neondb",
+            "EXPECTED_DATABASE_HOST": "ep-test.aws.neon.tech",
+        }
+        with patch.dict("os.environ", env, clear=True):
+            with patch("p0_startup_guard.verify_prewrite_database") as verifier:
+                check_startup_database()
+                verifier.assert_called_once_with(
+                    env["DATABASE_URL"], "neondb", "ep-test.aws.neon.tech",
+                    required_host_suffix=".neon.tech",
+                )
+
+    def test_invalid_mode_blocks_before_database_probe(self):
+        with patch.dict("os.environ", {"WERO_MODE": "unknown"}, clear=True):
+            with patch("p0_startup_guard.verify_prewrite_database") as verifier:
+                with self.assertRaisesRegex(RuntimeError, "invalid deployment mode"):
+                    check_startup_database()
+                verifier.assert_not_called()
 
     def test_startup_guard_precedes_all_writes(self):
         source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
