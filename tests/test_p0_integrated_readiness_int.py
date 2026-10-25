@@ -16,7 +16,9 @@ def test_int_gate_and_db_readiness_both_fail_closed():
     assert readiness_http_status({"status": "degraded", "database_ok": False,
                                   "storage_persistent": False}) == 503
     assert readiness_http_status({"status": "ok", "database_ok": True,
-                                  "storage_persistent": True}) == 200
+                                  "storage_persistent": True}) == 503
+    assert readiness_http_status({"status": "ok", "database_ok": True,
+                                  "storage_persistent": True}, True) == 200
 
 
 def test_integrated_route_and_rank_contracts_exist():
@@ -27,7 +29,8 @@ def test_integrated_route_and_rank_contracts_exist():
     ready = ast.get_source_segment(source, functions["ready"])
     rank = ast.get_source_segment(source, functions["premium_ai_ranking"])
     assert 'report = health()' in ready
-    assert 'readiness_http_status(report)' in ready
+    assert 'readiness_http_status(report, identity_ok)' in ready
+    assert 'database_identity_verified(cur.fetchone(), expected_name)' in ready
     assert '"offers": qualified_offers' in rank
     assert '"consultative_offers": offers' in rank
     assert 'COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL \'7 days\') > 0' in rank
