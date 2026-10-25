@@ -418,15 +418,36 @@ def health():
 
 @app.get("/ready", include_in_schema=False)
 def ready():
-    """Database-backed readiness: HTTP 503 when the existing health probe degrades.
+    """Fail closed unless DB health, expected name and schema are verified.
 
-    Does not expose DATABASE_URL or modify the existing /health contract.
-    Do not configure Render's healthCheckPath until staging and rollback pass.
+    EXPECTED_DATABASE_NAME must be configured separately per environment.
+    This check is read-only and does not prove physical instance identity,
+    durability, backup restoration, or readiness for migration.
+    Do not enable as Render's healthCheckPath before staging and rollback.
     """
-    from p0_readiness import readiness_http_status
+    from p0_readiness import readiness_http_status, database_identity_verified
     report = health()
-    return JSONResponse(status_code=readiness_http_status(report), content=report)
-
+    expected_name = os.getenv("EXPECTED_DATABASE_NAME", "").strip()
+    identity_ok = False
+    if expected_name and report.get("database_ok") is True:
+        try:
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT current_database() AS database_name, "
+                        "to_regclass('public.offers') IS NOT NULL AS offers, "
+                        "to_regclass('public.clicks') IS NOT NULL AS clicks, "
+                        "to_regclass('public.conversions') IS NOT NULL AS conversions, "
+                        "to_regclass('public.offer_landing_visits') IS NOT NULL AS offer_landing_visits"
+                    )
+                    identity_ok = database_identity_verified(cur.fetchone(), expected_name)
+        except Exception:
+            identity_ok = False
+    report["database_identity_verified"] = identity_ok
+    report["identity_scope"] = "database_name_and_schema_only_not_instance_or_durability"
+    return JSONResponse(
+        status_code=readiness_http_status(report, identity_ok), content=report
+    )
 
 @app.get("/assets/werozinha-3d.png", include_in_schema=False)
 def werozinha_3d():
