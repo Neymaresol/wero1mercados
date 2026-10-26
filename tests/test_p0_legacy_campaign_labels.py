@@ -24,6 +24,22 @@ class CampaignAttributionTests(unittest.TestCase):
         self.assertEqual(safe_campaign("https://example.test/?token=secret"), "")
         self.assertEqual(safe_campaign("werozinha-amazon"), "werozinha-amazon")
 
+    def test_legacy_get_is_read_only_and_requires_explicit_outbound_post(self):
+        source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        legacy = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                      and n.name == "werozinha_one_click_amazon")
+        route_source = ast.get_source_segment(source, legacy)
+        # A GET may come from previews/crawlers; only POST /out counts outbound clicks.
+        self.assertNotIn("INSERT INTO clicks", route_source)
+        self.assertNotIn("conn.commit()", route_source)
+        self.assertIn('landing = f"/go/{offer_id}', route_source)
+        self.assertIn("return RedirectResponse(landing, status_code=302)", route_source)
+        outbound = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                        and n.name == "confirm_offer_click")
+        decorators = [ast.get_source_segment(source, d) for d in outbound.decorator_list]
+        self.assertTrue(any('app.post("/out/{offer_id}")' in d for d in decorators))
+
     def test_legacy_get_route_normalizes_before_database_access(self):
         source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
