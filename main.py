@@ -896,6 +896,7 @@ def authorized_storefront_trends():
 @app.get("/go/{offer_id}", response_class=HTMLResponse)
 def go_offer_landing(
     offer_id: int,
+    request: Request,
     channel: str = Query(default="direct", max_length=40),
     campaign: str = Query(default="", max_length=80),
 ):
@@ -915,13 +916,17 @@ def go_offer_landing(
         raise HTTPException(status_code=404, detail="Oferta indisponivel")
     validate_authorized_url(row["authorized_url"], row["domain"])
     require_affiliate_attribution(row["authorized_url"], row["domain"])
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO offer_landing_visits(offer_id,channel,campaign) VALUES(%s,%s,%s)",
-                (offer_id, channel, campaign),
-            )
-        conn.commit()
+    # A GET may be a link preview; do not count declared prefetch/prerender.
+    # Remaining GETs are unverified visits, NOT authenticated human intent.
+    from p0_prefetch_guard import should_count_landing_visit
+    if should_count_landing_visit(request.headers):
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO offer_landing_visits(offer_id,channel,campaign) VALUES(%s,%s,%s)",
+                    (offer_id, channel, campaign),
+                )
+            conn.commit()
     title = html.escape(row["title"])
     partner = html.escape(row["partner_name"])
     cta_label = ("Conferir preço e disponibilidade na Amazon →"
