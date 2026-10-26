@@ -1079,14 +1079,22 @@ def acquisition():
     elif pending==0 and sales==0: bottleneck,next_action="NO_CONVERSION_SIGNAL","OPTIMIZE_OFFER_AND_LANDING"
     elif sales==0: bottleneck,next_action="PENDING_WITHOUT_CONFIRMED_SALE","VERIFY_PROVIDER_AND_OPTIMIZE_CONVERSION"
     else: bottleneck,next_action="FUNNEL_CONVERTING","SCALE_WINNERS"
+    # Click counts are unverified traffic, not authenticated INT.1/INT.2.
+    # Keep candidates visible for human analysis, never for automatic publication.
+    from int_qualification import INT_GATE_STATUS
     queue=[{"priority":n+1,"offer_id":r["id"],"title":r["title"],"tracked_clicks":r["clicks"],
             "tracked_url":f"/go/{r['id']}?channel=campaign&campaign=wero-acquisition",
-            "objective":"FIRST_CONFIRMED_SALE" if sales==0 else "SCALE_CONFIRMED_SALES"}
+            "objective":"FIRST_CONFIRMED_SALE" if sales==0 else "SCALE_CONFIRMED_SALES",
+            "signal_basis":"unverified_outbound_clicks",
+            "int1_verified":False,"int2_verified":False,
+            "publication_allowed":False,"requires_manual_review":True}
            for n,r in enumerate(rows)]
     return {"engine":"wero-acquisition","service":SERVICE,"version":VERSION,"bottleneck":bottleneck,
             "next_action":next_action,"active_offers":len(rows),"landing_visits":landing_visits,"tracked_clicks":clicks,
-            "pending_conversions":pending,"confirmed_sales":sales,"campaign_queue":queue,
-            "rule":"Somente conversoes reais confirmadas pela fonte parceira contam como vendas."}
+            "pending_conversions":pending,"confirmed_sales":sales,
+            "campaign_queue":[],"campaign_queue_status":INT_GATE_STATUS,
+            "consultative_queue":queue,"publication_allowed":False,
+            "rule":"Cliques sao sinais consultivos, nao INT autenticado, vendas ou comissoes. Publicacao bloqueada."}
 
 
 @app.get("/api/commercial")
