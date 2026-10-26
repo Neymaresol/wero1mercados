@@ -1293,14 +1293,11 @@ def werozinha_one_click_amazon(
             from p0_amazon_affiliate_gate import amazon_affiliate_tag
             if not amazon_affiliate_tag(row["authorized_url"]):
                 raise HTTPException(status_code=409, detail="Link Amazon sem identificador de afiliado verificavel")
-            cur.execute(
-                """INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at)
-                   VALUES(%s,%s,%s,%s,NOW())""",
-                (offer_id, channel, campaign, SERVICE),
-            )
-            target = row["authorized_url"]
-        conn.commit()
-    return RedirectResponse(target, status_code=302)
+    # GET can be triggered by crawlers, previews or link scanners.
+    # Preserve the affiliate URL checks above but never count GET as a click.
+    # A deliberate POST on /out/{offer_id} remains the outbound click boundary.
+    landing = f"/go/{offer_id}?{urlencode({'channel': channel, 'campaign': campaign})}"
+    return RedirectResponse(landing, status_code=302)
 
 
 @app.get("/vitrine", response_class=HTMLResponse)
