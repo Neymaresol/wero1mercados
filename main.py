@@ -896,6 +896,7 @@ def authorized_storefront_trends():
 @app.get("/go/{offer_id}", response_class=HTMLResponse)
 def go_offer_landing(
     offer_id: int,
+    request: Request,
     channel: str = Query(default="direct", max_length=40),
     campaign: str = Query(default="", max_length=80),
 ):
@@ -915,13 +916,17 @@ def go_offer_landing(
         raise HTTPException(status_code=404, detail="Oferta indisponivel")
     validate_authorized_url(row["authorized_url"], row["domain"])
     require_affiliate_attribution(row["authorized_url"], row["domain"])
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO offer_landing_visits(offer_id,channel,campaign) VALUES(%s,%s,%s)",
-                (offer_id, channel, campaign),
-            )
-        conn.commit()
+    # A GET may be a link preview; do not count declared prefetch/prerender.
+    # Remaining GETs are unverified visits, NOT authenticated human intent.
+    from p0_prefetch_guard import should_count_landing_visit
+    if should_count_landing_visit(request.headers):
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO offer_landing_visits(offer_id,channel,campaign) VALUES(%s,%s,%s)",
+                    (offer_id, channel, campaign),
+                )
+            conn.commit()
     title = html.escape(row["title"])
     partner = html.escape(row["partner_name"])
     cta_label = ("Conferir preço e disponibilidade na Amazon →"
@@ -1274,6 +1279,10 @@ def werozinha_one_click_amazon(
     campaign: str = Query(default="werozinha-amazon", max_length=80),
 ):
     """Single-tap Amazon redirect for approved Werozinha campaign offers."""
+    # Query parameters are unverified labels, never proof of a real referrer.
+    # Apply the same fail-closed normalization used by /go/ and /out/.
+    channel = classify_channel(channel)
+    campaign = safe_campaign(campaign)
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -1289,14 +1298,11 @@ def werozinha_one_click_amazon(
             from p0_amazon_affiliate_gate import amazon_affiliate_tag
             if not amazon_affiliate_tag(row["authorized_url"]):
                 raise HTTPException(status_code=409, detail="Link Amazon sem identificador de afiliado verificavel")
-            cur.execute(
-                """INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at)
-                   VALUES(%s,%s,%s,%s,NOW())""",
-                (offer_id, channel, campaign, SERVICE),
-            )
-            target = row["authorized_url"]
-        conn.commit()
-    return RedirectResponse(target, status_code=302)
+    # GET can be triggered by crawlers, previews or link scanners.
+    # Preserve the affiliate URL checks above but never count GET as a click.
+    # A deliberate POST on /out/{offer_id} remains the outbound click boundary.
+    landing = f"/go/{offer_id}?{urlencode({'channel': channel, 'campaign': campaign})}"
+    return RedirectResponse(landing, status_code=302)
 
 
 @app.get("/vitrine", response_class=HTMLResponse)
