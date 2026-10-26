@@ -410,7 +410,10 @@ def health():
         "market": "BR",
         "currency": "BRL",
         "storage": "postgresql",
-        "storage_persistent": database_ok,
+        # SELECT 1 proves connectivity only, never durable persistence or a tested restore.
+        "storage_persistent": None,
+        "persistence_verification": "NOT_VERIFIED",
+        "health_scope": "db_connectivity_only",
         "database_ok": database_ok,
         "time": now_iso(),
     }
