@@ -1,5 +1,4 @@
 """Offline tests: no HTTP, database writes, synthetic clicks or conversions."""
-import pytest
 from hotmart_intent_funnel import IntentEvent
 from p0_int_ranking_gate import eligible_int_ranking
 
@@ -56,5 +55,9 @@ def test_authorization_and_limit():
                                 evidence, source_authenticated=True, limit=1) == [
         {"offer_id": 2, "intent_tier": "INT.1"}
     ]
-    with pytest.raises(ValueError):
+    try:
         eligible_int_ranking([], {}, source_authenticated=True, limit=0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("invalid limit must raise ValueError")
