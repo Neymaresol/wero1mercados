@@ -410,7 +410,11 @@ def health():
         "market": "BR",
         "currency": "BRL",
         "storage": "postgresql",
-        "storage_persistent": database_ok,
+        # SELECT 1 proves reachability only, not durable writes or tested restore.
+        # Never report persistent storage as verified from a read-only probe.
+        "storage_persistent": None,
+        "storage_persistence_verified": False,
+        "health_scope": "database_connectivity_only",
         "database_ok": database_ok,
         "time": now_iso(),
     }
