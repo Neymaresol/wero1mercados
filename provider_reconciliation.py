@@ -9,6 +9,7 @@ import csv
 import hashlib
 import hmac
 import io
+import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Mapping
@@ -32,10 +33,15 @@ def parse_verified_csv(raw: bytes, provenance: Provenance, columns: Mapping[str,
     The caller must independently verify report origin and bind SHA-256 to the
     actual bytes. No partner report is trusted just because it contains a name.
     """
-    if not provenance.verified or provenance.partner not in PARTNERS:
+    # Fail closed: a nonempty string such as "false" must never authenticate a report.
+    if provenance.verified is not True or provenance.partner not in PARTNERS:
         raise ValueError("unverified partner report")
-    if not provenance.account_id.strip() or not provenance.report_id.strip():
+    if (not isinstance(provenance.account_id, str) or not provenance.account_id.strip()
+            or not isinstance(provenance.report_id, str) or not provenance.report_id.strip()):
         raise ValueError("missing source identity")
+    if (not isinstance(provenance.sha256, str)
+            or re.fullmatch(r"[0-9a-fA-F]{64}", provenance.sha256) is None):
+        raise ValueError("invalid report checksum")
     if not raw or len(raw) > MAX_BYTES:
         raise ValueError("invalid report size")
     actual = hashlib.sha256(raw).hexdigest()
