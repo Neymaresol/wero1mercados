@@ -20,6 +20,30 @@ class ReconciliationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             official_adapter("amazon", RAW, provenance(verified=False), COLUMNS)
 
+    def test_rejects_truthy_non_boolean_verification(self):
+        # Strings and integers are truthy in Python but not authentication.
+        for flag in ("false", "true", 1, -1, None):
+            with self.subTest(flag=flag), self.assertRaises(ValueError):
+                official_adapter("amazon", RAW, provenance(verified=flag), COLUMNS)
+
+    def test_rejects_invalid_provenance_fields(self):
+        base = provenance()
+        for changes in (
+            {"account_id": None},
+            {"report_id": 123},
+            {"sha256": None},
+            {"sha256": "z" * 64},
+            {"sha256": "a" * 63},
+        ):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                official_adapter("amazon", RAW, Provenance(
+                    changes.get("partner", base.partner),
+                    changes.get("account_id", base.account_id),
+                    changes.get("report_id", base.report_id),
+                    changes.get("sha256", base.sha256),
+                    base.verified,
+                ), COLUMNS)
+
     def test_rejects_modified_report(self):
         with self.assertRaises(ValueError):
             official_adapter("amazon", RAW + b"extra", provenance(), COLUMNS)
