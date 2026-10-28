@@ -37,11 +37,26 @@ class HealthDurabilityContractTests(unittest.TestCase):
         self.assertEqual(readiness_http_status({
             **report, "storage_persistent": False
         }), 503)
-
-    def test_existing_explicitly_verified_readiness_contract_unchanged(self):
+        # Even a stale or manipulated persistent=True label cannot bypass proof.
         self.assertEqual(readiness_http_status({
-            "status": "ok", "database_ok": True, "storage_persistent": True
-        }), 200)
+            **report, "storage_persistent": True
+        }), 503)
+        self.assertEqual(readiness_http_status({
+            **report, "storage_persistent": True,
+            "storage_persistence_verified": "true"
+        }), 503)
+
+    def test_readiness_requires_both_independent_flags(self):
+        report = {"status": "ok", "database_ok": True,
+                  "storage_persistent": True,
+                  "storage_persistence_verified": True}
+        self.assertEqual(readiness_http_status(report), 200)
+        self.assertEqual(readiness_http_status({
+            k: v for k, v in report.items() if k != "storage_persistence_verified"
+        }), 503)
+        self.assertEqual(readiness_http_status({**report, "database_ok": False}), 503)
+        self.assertEqual(readiness_http_status({**report, "status": "degraded"}), 503)
+        self.assertEqual(readiness_http_status(None), 503)
 
 
 if __name__ == "__main__":

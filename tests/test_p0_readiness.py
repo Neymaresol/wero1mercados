@@ -13,18 +13,21 @@ class ReadinessProbeTests(unittest.TestCase):
             "storage_persistent": False,
         }), 503)
 
-    def test_healthy_database_is_200(self):
+    def test_verified_database_and_durability_is_200(self):
         self.assertEqual(readiness_http_status({
             "status": "ok", "database_ok": True,
             "storage_persistent": True,
+            "storage_persistence_verified": True,
         }), 200)
 
     def test_inconsistent_health_fails_closed(self):
         for report in (
-            {"status": "degraded", "database_ok": True, "storage_persistent": True},
-            {"status": "ok", "database_ok": False, "storage_persistent": True},
-            {"status": "ok", "database_ok": True, "storage_persistent": False},
-            {"status": "ok", "database_ok": 1, "storage_persistent": True},
+            {"status": "degraded", "database_ok": True, "storage_persistent": True, "storage_persistence_verified": True},
+            {"status": "ok", "database_ok": False, "storage_persistent": True, "storage_persistence_verified": True},
+            {"status": "ok", "database_ok": True, "storage_persistent": False, "storage_persistence_verified": True},
+            {"status": "ok", "database_ok": 1, "storage_persistent": True, "storage_persistence_verified": True},
+            {"status": "ok", "database_ok": True, "storage_persistent": True},
+            {"status": "ok", "database_ok": True, "storage_persistent": True, "storage_persistence_verified": False},
             {}, None,
         ):
             with self.subTest(report=report):
