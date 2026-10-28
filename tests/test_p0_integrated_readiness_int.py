@@ -16,7 +16,10 @@ def test_int_gate_and_db_readiness_both_fail_closed():
     assert readiness_http_status({"status": "degraded", "database_ok": False,
                                   "storage_persistent": False}) == 503
     assert readiness_http_status({"status": "ok", "database_ok": True,
-                                  "storage_persistent": True}) == 200
+                                  "storage_persistent": True}) == 503
+    assert readiness_http_status({"status": "ok", "database_ok": True,
+                                  "storage_persistent": True,
+                                  "storage_persistence_verified": True}) == 200
 
 
 def test_integrated_route_and_rank_contracts_exist():
