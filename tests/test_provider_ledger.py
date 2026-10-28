@@ -47,6 +47,20 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(upsert_verified(conn, row("reversed")), "updated")
         self.assertTrue(any("UPDATE affiliate_conversion_ledger" in q for q, _ in conn.cursor_obj.statements))
 
+    def test_reject_unapproved_partner_and_invalid_sha_before_sql(self):
+        invalid = (
+            {"source_partner": "unknown"},
+            {"source_sha256": "z" * 64},
+            {"source_sha256": "A" * 64},
+            {"source_sha256": "a" * 63},
+        )
+        for changes in invalid:
+            with self.subTest(changes=changes):
+                conn = FakeConnection()
+                with self.assertRaises(ValueError):
+                    upsert_verified(conn, {**row(), **changes})
+                self.assertEqual(conn.cursor_obj.statements, [])
+
     def test_reject_invalid_input_without_sql(self):
         conn = FakeConnection()
         with self.assertRaises(ValueError):
