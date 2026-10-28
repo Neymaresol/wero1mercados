@@ -4,7 +4,8 @@ No connection is made on import. Caller supplies a staging connection and must
 verify report provenance before invoking upsert. Never wired to production.
 """
 from decimal import Decimal
-from provider_reconciliation import STATUSES, reconcile
+import re
+from provider_reconciliation import PARTNERS, STATUSES, reconcile
 
 DDL = """
 CREATE TABLE IF NOT EXISTS affiliate_conversion_ledger (
@@ -50,7 +51,9 @@ def upsert_verified(conn, row):
         raise ValueError("invalid verified conversion")
     if not all(isinstance(row[k], str) and row[k].strip() for k in required):
         raise ValueError("missing conversion field")
-    if len(row["source_sha256"]) != 64:
+    if row["source_partner"] not in PARTNERS:
+        raise ValueError("unapproved source partner")
+    if re.fullmatch(r"[0-9a-f]{64}", row["source_sha256"]) is None:
         raise ValueError("invalid source checksum")
     for key in ("sale_amount_brl", "commission_brl"):
         amount = Decimal(row[key])
