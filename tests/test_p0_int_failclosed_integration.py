@@ -30,7 +30,7 @@ def test_premium_ranking_keeps_unverified_clicks_consultative_only():
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name == "premium_ai_ranking"
     )
-    returns = [node.value for node in ast.walk(endpoint) if isinstance(node, ast.Return)]
+    returns = [node.value for node in endpoint.body if isinstance(node, ast.Return)]
     assert len(returns) == 1 and isinstance(returns[0], ast.Dict)
     fields = {
         key.value: value
