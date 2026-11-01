@@ -1118,7 +1118,7 @@ def acquisition():
         "consultative_candidates": len(consultative_queue),
         "catalog_visits": catalog_visits,
         "landing_visits": landing_visits,
-        "tracked_clicks": clicks,
+        "tracked_clicks":clicks,
         "pending_conversions": pending,
         "confirmed_sales": sales,
         "campaign_queue": [],
