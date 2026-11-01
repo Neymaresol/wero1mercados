@@ -1225,7 +1225,14 @@ def premium_update(key: str, payload: PremiumSettingUpdate, _admin: None = Depen
                            ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,
                            revision=EXCLUDED.revision,updated_at=NOW()""",
                         (key,payload.value,revision))
-            cur.execute("""INSERT INTO premium_change_log(sett@app.get("/api/premium/ai-ranking")
+            cur.execute("""INSERT INTO premium_change_log(setting_key,old_value,new_value,revision)
+                           VALUES (%s,%s,%s,%s)""",
+                        (key,old["value"] if old else None,payload.value,revision))
+    return {"status":"recorded","key":key,"value":payload.value,
+            "revision":revision,"operational_effect":"registry_only"}
+
+
+@app.get("/api/premium/ai-ranking")
 def premium_ai_ranking(
     limit: int = Query(default=12, ge=1, le=100),
     _admin: None = Depends(require_admin),
@@ -1267,13 +1274,7 @@ def premium_ai_ranking(
         "consultative_ranking_basis": "Public outbound clicks in the last 7 days; NOT INT-qualified, sales, or commissions",
         "excluded_unverified_offers": len(offers),
         "note": "INT-qualified ranking disabled until independently authenticated server events are available; no sales or commissions inferred.",
-    }_mode": settings.get("ai_review_mode", "manual"),
-        "ranking_basis": "real tracked outbound clicks; no predicted or invented sales",
-        "publication_status": "NOT_CONNECTED",
-        "offers": offers,
-        "note": "Advisory ranking only; no posting, offer changes, or automated purchases.",
     }
-
 
 @app.get("/campanha/werozinha/amazon/{offer_id}")
 def werozinha_one_click_amazon(
