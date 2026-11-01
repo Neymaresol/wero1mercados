@@ -896,6 +896,7 @@ def authorized_storefront_trends():
 @app.get("/go/{offer_id}", response_class=HTMLResponse)
 def go_offer_landing(
     offer_id: int,
+    request: Request,
     channel: str = Query(default="direct", max_length=40),
     campaign: str = Query(default="", max_length=80),
 ):
@@ -915,13 +916,17 @@ def go_offer_landing(
         raise HTTPException(status_code=404, detail="Oferta indisponivel")
     validate_authorized_url(row["authorized_url"], row["domain"])
     require_affiliate_attribution(row["authorized_url"], row["domain"])
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO offer_landing_visits(offer_id,channel,campaign) VALUES(%s,%s,%s)",
-                (offer_id, channel, campaign),
-            )
-        conn.commit()
+    # A GET may be a link preview; exclude declared prefetch/prerender only.
+    # Other GETs remain unverified visits, never authenticated intent.
+    from p0_prefetch_guard import should_count_landing_visit
+    if should_count_landing_visit(request.headers):
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO offer_landing_visits(offer_id,channel,campaign) VALUES(%s,%s,%s)",
+                    (offer_id, channel, campaign),
+                )
+            conn.commit()
     title = html.escape(row["title"])
     partner = html.escape(row["partner_name"])
     cta_label = ("Conferir preço e disponibilidade na Amazon →"
@@ -1220,19 +1225,12 @@ def premium_update(key: str, payload: PremiumSettingUpdate, _admin: None = Depen
                            ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,
                            revision=EXCLUDED.revision,updated_at=NOW()""",
                         (key,payload.value,revision))
-            cur.execute("""INSERT INTO premium_change_log(setting_key,old_value,new_value,revision)
-                           VALUES (%s,%s,%s,%s)""",
-                        (key,old["value"] if old else None,payload.value,revision))
-    return {"status":"recorded","key":key,"value":payload.value,
-            "revision":revision,"operational_effect":"registry_only"}
-
-
-@app.get("/api/premium/ai-ranking")
+            cur.execute("""INSERT INTO premium_change_log(sett@app.get("/api/premium/ai-ranking")
 def premium_ai_ranking(
     limit: int = Query(default=12, ge=1, le=100),
     _admin: None = Depends(require_admin),
 ):
-    """Safe read-only ranking using confirmed local click events, never fake conversions."""
+    """Read-only ranking; public clicks remain consultative, never INT proof."""
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT key,value FROM premium_settings WHERE key IN ('campaign_priority','ai_review_mode')")
@@ -1251,15 +1249,25 @@ def premium_ai_ranking(
             """, (limit,))
             offers = cur.fetchall()
     priority = settings.get("campaign_priority", "balanced")
-    # Preference only breaks ties; never suppresses an authorized offer.
     def rank(item):
         preferred = priority != "balanced" and priority in item["partner"].lower()
         return (-int(item["clicks_7d"]), -int(item["tracked_clicks"]), -int(preferred), int(item["offer_id"]))
     offers.sort(key=rank)
+    # Only an independently authenticated server-side adapter may unlock INT.
+    from int_qualification import filter_int_qualified_offers, INT_GATE_STATUS
+    qualified_offers = filter_int_qualified_offers(offers)
     return {
         "service": SERVICE, "version": VERSION,
         "mode": "read_only", "priority": priority,
         "ai_review_mode": settings.get("ai_review_mode", "manual"),
+        "ranking_basis": "INT.1/INT.2 unavailable: public click counts are not authenticated intent",
+        "publication_status": INT_GATE_STATUS,
+        "offers": qualified_offers,
+        "consultative_offers": offers,
+        "consultative_ranking_basis": "Public outbound clicks in the last 7 days; NOT INT-qualified, sales, or commissions",
+        "excluded_unverified_offers": len(offers),
+        "note": "INT-qualified ranking disabled until independently authenticated server events are available; no sales or commissions inferred.",
+    }_mode": settings.get("ai_review_mode", "manual"),
         "ranking_basis": "real tracked outbound clicks; no predicted or invented sales",
         "publication_status": "NOT_CONNECTED",
         "offers": offers,
@@ -1273,7 +1281,9 @@ def werozinha_one_click_amazon(
     channel: str = Query(default="social", max_length=40),
     campaign: str = Query(default="werozinha-amazon", max_length=80),
 ):
-    """Single-tap Amazon redirect for approved Werozinha campaign offers."""
+    """Legacy GET now validates and redirects to the landing; it never counts a click."""
+    channel = classify_channel(channel)
+    campaign = safe_campaign(campaign)
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -1289,15 +1299,8 @@ def werozinha_one_click_amazon(
             from p0_amazon_affiliate_gate import amazon_affiliate_tag
             if not amazon_affiliate_tag(row["authorized_url"]):
                 raise HTTPException(status_code=409, detail="Link Amazon sem identificador de afiliado verificavel")
-            cur.execute(
-                """INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at)
-                   VALUES(%s,%s,%s,%s,NOW())""",
-                (offer_id, channel, campaign, SERVICE),
-            )
-            target = row["authorized_url"]
-        conn.commit()
-    return RedirectResponse(target, status_code=302)
-
+    landing = f"/go/{offer_id}?{urlencode({'channel': channel, 'campaign': campaign})}"
+    return RedirectResponse(landing, status_code=302)
 
 @app.get("/vitrine", response_class=HTMLResponse)
 @app.get("/campanha/werozinha", response_class=HTMLResponse)
