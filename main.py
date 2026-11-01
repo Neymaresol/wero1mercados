@@ -1051,35 +1051,83 @@ def ingest_provider_conversion(
 
 @app.get("/api/acquisition")
 def acquisition():
-    """Diagnose the real commercial funnel and prioritize authorized offers without fabricating demand."""
+    """Diagnose the funnel; clicks remain consultative and never unlock INT publication."""
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("""SELECT o.id,o.title,o.price_brl,o.commission_brl,COUNT(c.id) AS clicks
+            cur.execute("""SELECT o.id,o.title,o.price_brl,o.commission_brl,
+                                  COUNT(c.id) AS clicks,
+                                  COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') AS clicks_7d
                            FROM offers o LEFT JOIN clicks c ON c.offer_id=o.id
                            JOIN partners p ON p.id=o.partner_id
-                           WHERE o.active=TRUE AND p.active=TRUE GROUP BY o.id
+                           WHERE o.active=TRUE AND p.active=TRUE
+                           GROUP BY o.id
                            HAVING COUNT(c.id) > 0
-                           ORDER BY clicks DESC,o.commission_brl DESC NULLS LAST,o.id""")
-            rows=cur.fetchall()
+                              AND COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') > 0
+                           ORDER BY clicks_7d DESC, clicks DESC,
+                                    o.commission_brl DESC NULLS LAST, o.id""")
+            rows = cur.fetchall()
             cur.execute("SELECT COUNT(*) AS c FROM catalog_visits")
             catalog_visits = cur.fetchone()["c"]
-            cur.execute("SELECT COUNT(*) AS c FROM offer_landing_visits"); landing_visits=cur.fetchone()["c"]
-            cur.execute("SELECT COUNT(*) AS c FROM clicks"); clicks=cur.fetchone()["c"]
-            cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='confirmed'"); sales=cur.fetchone()["c"]
-            cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='pending'"); pending=cur.fetchone()["c"]
-    if not rows: bottleneck,next_action="NO_ACTIVE_OFFERS","IMPORT_AUTHORIZED_OFFERS"
-    elif clicks==0: bottleneck,next_action="NO_TRACKED_TRAFFIC","DISTRIBUTE_TRACKED_CAMPAIGNS"
-    elif pending==0 and sales==0: bottleneck,next_action="NO_CONVERSION_SIGNAL","OPTIMIZE_OFFER_AND_LANDING"
-    elif sales==0: bottleneck,next_action="PENDING_WITHOUT_CONFIRMED_SALE","VERIFY_PROVIDER_AND_OPTIMIZE_CONVERSION"
-    else: bottleneck,next_action="FUNNEL_CONVERTING","SCALE_WINNERS"
-    queue=[{"priority":n+1,"offer_id":r["id"],"title":r["title"],"tracked_clicks":r["clicks"],
-            "tracked_url":f"/go/{r['id']}?channel=campaign&campaign=wero-acquisition",
-            "objective":"FIRST_CONFIRMED_SALE" if sales==0 else "SCALE_CONFIRMED_SALES"}
-           for n,r in enumerate(rows)]
-    return {"engine":"wero-acquisition","service":SERVICE,"version":VERSION,"bottleneck":bottleneck,
-            "next_action":next_action,"active_offers":len(rows),"landing_visits":landing_visits,"tracked_clicks":clicks,
-            "pending_conversions":pending,"confirmed_sales":sales,"campaign_queue":queue,
-            "rule":"Somente conversoes reais confirmadas pela fonte parceira contam como vendas."}
+            cur.execute("SELECT COUNT(*) AS c FROM offer_landing_visits")
+            landing_visits = cur.fetchone()["c"]
+            cur.execute("SELECT COUNT(*) AS c FROM clicks")
+            clicks = cur.fetchone()["c"]
+            cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='confirmed'")
+            sales = cur.fetchone()["c"]
+            cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='pending'")
+            pending = cur.fetchone()["c"]
+            cur.execute("""SELECT COUNT(*) AS c FROM offers o
+                           JOIN partners p ON p.id=o.partner_id
+                           WHERE o.active=TRUE AND p.active=TRUE""")
+            active_offers = cur.fetchone()["c"]
+
+    if not rows:
+        bottleneck, next_action = "NO_RECENT_CONSULTATIVE_SIGNAL", "COLLECT_AUTHENTICATED_INTENT"
+    elif pending == 0 and sales == 0:
+        bottleneck, next_action = "NO_CONVERSION_SIGNAL", "WAIT_FOR_PROVIDER_VERIFIED_CONVERSION"
+    elif sales == 0:
+        bottleneck, next_action = "PENDING_WITHOUT_CONFIRMED_SALE", "VERIFY_PROVIDER_AND_REVIEW_FUNNEL"
+    else:
+        bottleneck, next_action = "FUNNEL_HAS_CONFIRMED_SALES", "REVIEW_CONFIRMED_PERFORMANCE"
+
+    from int_qualification import INT_GATE_STATUS
+    consultative_queue = [
+        {
+            "priority": n + 1,
+            "offer_id": r["id"],
+            "title": r["title"],
+            "tracked_clicks": r["clicks"],
+            "clicks_7d": r["clicks_7d"],
+            "tracked_url": f"/go/{r['id']}?channel=campaign&campaign=wero-acquisition",
+            "objective": "FIRST_CONFIRMED_SALE" if sales == 0 else "REVIEW_CONFIRMED_PERFORMANCE",
+            "signal_basis": "unverified_outbound_clicks",
+            "int1_verified": False,
+            "int2_verified": False,
+            "publication_allowed": False,
+            "requires_manual_review": True,
+        }
+        for n, r in enumerate(rows)
+    ]
+    return {
+        "engine": "wero-acquisition",
+        "service": SERVICE,
+        "version": VERSION,
+        "bottleneck": bottleneck,
+        "next_action": next_action,
+        "active_offers": active_offers,
+        "consultative_candidates": len(consultative_queue),
+        "catalog_visits": catalog_visits,
+        "landing_visits": landing_visits,
+        "tracked_clicks": clicks,
+        "pending_conversions": pending,
+        "confirmed_sales": sales,
+        "campaign_queue": [],
+        "campaign_queue_status": INT_GATE_STATUS,
+        "consultative_queue": consultative_queue,
+        "publication_allowed": False,
+        "requires_manual_review": True,
+        "rule": "Cliques são sinais consultivos, não INT autenticado, vendas ou comissões. Publicação bloqueada.",
+    }
 
 
 @app.get("/api/commercial")
@@ -1251,6 +1299,8 @@ def premium_ai_ranking(
                 LEFT JOIN clicks c ON c.offer_id=o.id
                 WHERE o.active=TRUE AND p.active=TRUE
                 GROUP BY o.id,o.title,p.name
+                HAVING COUNT(c.id) > 0
+                   AND COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') > 0
                 ORDER BY clicks_7d DESC, tracked_clicks DESC, o.id ASC
                 LIMIT %s
             """, (limit,))
