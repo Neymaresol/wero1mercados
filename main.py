@@ -410,7 +410,11 @@ def health():
         "market": "BR",
         "currency": "BRL",
         "storage": "postgresql",
-        "storage_persistent": database_ok,
+        "database_reachable": database_ok,
+        "storage_persistent": None,
+        "storage_persistence_verified": False,
+        "storage_persistence_status": "NOT_VERIFIED",
+        "storage_persistence_note": "SELECT 1 verifies database connectivity only; durable persistence requires a write/read-back check and a successful backup restore.",
         "database_ok": database_ok,
         "time": now_iso(),
     }
