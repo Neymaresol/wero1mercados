@@ -1052,6 +1052,7 @@ def ingest_provider_conversion(
 @app.get("/api/acquisition")
 def acquisition():
     """Diagnose the funnel; clicks remain consultative and never unlock INT publication."""
+    # P0: only recent click candidates are consultative; no click can unlock INT.1/INT.2.
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("""SELECT o.id,o.title,o.price_brl,o.commission_brl,
