@@ -12,5 +12,5 @@ def test_only_provider_confirmed_sales():
 
 
 def test_separate_clicks_and_sales():
-    assert re.search(r'"tracked_clicks"\\s*:\\s*clicks', s)
-    assert re.search(r'"confirmed_sales"\\s*:\\s*sales', s)
+    assert re.search(r'"tracked_clicks"\s*:\s*clicks', s)
+    assert re.search(r'"confirmed_sales"\s*:\s*sales', s)
