@@ -84,3 +84,11 @@ def test_legacy_amazon_get_redirects_without_counting_click():
     assert "INSERT INTO clicks" not in source
     assert "RedirectResponse(landing" in source
     assert 'landing = f"/go/{offer_id}' in source
+
+def test_tags_trends_excludes_zero_and_stale_click_offers():
+    fn = endpoint("authorized_storefront_trends")
+    assert route(fn) == ("get", "/api/tags/trends")
+    source = body(fn)
+    assert "HAVING COUNT(c.id) > 0" in source
+    assert "COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') > 0" in source
+
