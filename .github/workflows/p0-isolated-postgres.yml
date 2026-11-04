@@ -1,7 +1,6 @@
 name: P0 Isolated PostgreSQL Double Check
 on:
   pull_request:
-    branches: [main]
   workflow_dispatch:
 jobs:
   isolated-postgres:
@@ -10,7 +9,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: p0test
           POSTGRES_PASSWORD: p0test
@@ -32,9 +31,17 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt httpx2
-      - name: Compile changed Python
+      - name: Compile P0 Python
         run: python -m py_compile main.py p0_conversion_gate.py scripts/p0_database_identity.py tests/test_p0_postgres_integration.py
+      - name: Compile outbound token helper when present
+        run: |
+          if [ -f p0_outbound_action.py ]; then python -m py_compile p0_outbound_action.py; fi
       - name: Offline provenance tests
         run: python -m unittest discover -s tests -p 'test_p0_funnel_provenance_20261013.py' -v
+      - name: Offline outbound token tests when present
+        run: |
+          if [ -f tests/test_p0_outbound_action.py ]; then
+            python -m unittest discover -s tests -p 'test_p0_outbound_action.py' -v
+          fi
       - name: Real HTTP/Postgres integration tests
         run: python -m unittest discover -s tests -p 'test_p0_postgres_integration.py' -v
