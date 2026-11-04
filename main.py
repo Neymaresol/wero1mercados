@@ -16,7 +16,7 @@ from decimal import Decimal
 import secrets
 import html
 import time
-from fastapi.responses import RedirectResponse, HTMLResponse, Response
+from fastapi.responses import RedirectResponse, HTMLResponse, Response, JSONResponse
 
 VERSION = "1.14.15-BR-rc1"
 SERVICE = "wero1mercados"
@@ -418,6 +418,19 @@ def health():
         "database_ok": database_ok,
         "time": now_iso(),
     }
+
+
+@app.get("/ready", include_in_schema=False)
+def ready():
+    """Readiness HTTP reflects database reachability, not backup verification.
+
+    Persistence assurance remains explicitly NOT_VERIFIED until an independent
+    backup has been restored. A reachable database can serve requests while
+    that separate recovery control is still pending.
+    """
+    from p0_readiness import readiness_http_status
+    report = health()
+    return JSONResponse(status_code=readiness_http_status(report), content=report)
 
 
 @app.get("/assets/werozinha-3d.png", include_in_schema=False)
