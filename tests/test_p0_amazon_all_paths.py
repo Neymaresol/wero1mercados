@@ -9,7 +9,11 @@ TREE = ast.parse(SOURCE)
 
 
 def function(name):
-    return next(node for node in TREE.body if isinstance(node, ast.FunctionDef) and node.name == name)
+    return next(
+        node for node in TREE.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == name
+    )
 
 
 class AmazonAllPathsTests(unittest.TestCase):
