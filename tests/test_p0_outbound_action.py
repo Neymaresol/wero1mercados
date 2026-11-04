@@ -1,5 +1,6 @@
 """Offline tests for single-use /out action tokens; no DB or HTTP writes."""
 import ast
+import pytest
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -30,14 +31,14 @@ def test_urlencoded_token_is_extracted_and_hashed_without_persisting_raw_value()
 
 def test_token_parser_rejects_wrong_content_type_duplicate_and_oversized_body():
     token = "B" * 43
-    with __import__("pytest").raises(ValueError):
+    with pytest.raises(ValueError):
         extract_action_token("application/json", b'{"action_token":"%s"}' % token.encode())
-    with __import__("pytest").raises(ValueError):
+    with pytest.raises(ValueError):
         extract_action_token(
             "application/x-www-form-urlencoded",
             urlencode([("action_token", token), ("action_token", token)]).encode(),
         )
-    with __import__("pytest").raises(ValueError):
+    with pytest.raises(ValueError):
         extract_action_token(
             "application/x-www-form-urlencoded",
             b"x" * 2049,
@@ -45,9 +46,9 @@ def test_token_parser_rejects_wrong_content_type_duplicate_and_oversized_body():
 
 
 def test_token_digest_rejects_short_or_non_url_safe_values():
-    with __import__("pytest").raises(ValueError):
+    with pytest.raises(ValueError):
         digest_action_token("short")
-    with __import__("pytest").raises(ValueError):
+    with pytest.raises(ValueError):
         digest_action_token("A" * 42 + "/")
 
 
@@ -64,6 +65,8 @@ def test_landing_issues_offer_bound_token_and_disables_caching():
 def test_out_consumes_unexpired_token_once_before_inserting_click():
     body = _function_source("confirm_offer_click")
     assert "extract_action_token" in body
+    assert "async for chunk in request.stream()" in body
+    assert "MAX_BODY_BYTES" in body
     assert "UPDATE outbound_action_tokens" in body
     assert "consumed_at IS NULL" in body
     assert "INTERVAL '10 minutes'" in body
