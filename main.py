@@ -14,7 +14,6 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from decimal import Decimal
 import secrets
-import hashlib
 import html
 import time
 from fastapi.responses import RedirectResponse, HTMLResponse, Response, JSONResponse
