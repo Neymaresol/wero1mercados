@@ -1008,11 +1008,16 @@ async def confirm_offer_click(
 ):
     # The landing-issued token is short-lived, offer-bound and single-use.
     # Clicks remain consultative only; this is not authenticated INT evidence.
-    from p0_outbound_action import digest_action_token, extract_action_token
+    from p0_outbound_action import MAX_BODY_BYTES, digest_action_token, extract_action_token
     try:
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > MAX_BODY_BYTES:
+                raise HTTPException(status_code=413, detail="Formulário excede o limite permitido")
         action_token = extract_action_token(
             request.headers.get("content-type", ""),
-            await request.body(),
+            bytes(body),
         )
         token_hash = digest_action_token(action_token)
     except ValueError as exc:
