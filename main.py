@@ -396,8 +396,24 @@ def seed_amazon_campaigns():
         conn.commit()
 
 
+def startup_bootstrap_enabled():
+    """Allow startup DDL/seeds only after an explicit staging-only opt-in."""
+    deployment_env = os.getenv("WERO_DEPLOYMENT_ENV", "").strip().lower()
+    explicit_opt_in = os.getenv("WERO_ALLOW_STARTUP_DB_MUTATIONS", "").strip().lower()
+    return (
+        deployment_env == "staging"
+        and explicit_opt_in in {"1", "true", "yes"}
+        and WERO_MODE != "production"
+    )
+
+
 @app.on_event("startup")
 def startup():
+    # Production and default staging startup must be side-effect-free.
+    # Schema changes and catalogue seeds require a separately approved,
+    # explicitly marked staging bootstrap operation.
+    if not startup_bootstrap_enabled():
+        return
     init_db()
     seed_amazon_campaigns()
     seed_additional_amazon_campaigns()
