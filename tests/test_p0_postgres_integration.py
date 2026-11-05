@@ -21,6 +21,12 @@ class FunnelPostgresIntegration(unittest.TestCase):
 
         main.DATABASE_URL = cls.url
         cls.main = main
+        # This suite is guarded to a disposable localhost PostgreSQL database.
+        # Bootstrap its schema and fixtures explicitly; application startup is
+        # intentionally read-only unless an operator opts into staging bootstrap.
+        main.init_db()
+        main.seed_amazon_campaigns()
+        main.seed_additional_amazon_campaigns()
         cls.client = cls.TestClient(main.app)
         cls.client.__enter__()
         with cls.psycopg.connect(cls.url) as conn:
