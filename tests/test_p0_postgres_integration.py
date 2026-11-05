@@ -1,8 +1,8 @@
 """Actual FastAPI + isolated PostgreSQL route tests; never target production."""
 import os
 import re
-import sys
-import types
+import ast
+import copy
 import unittest
 from unittest import mock
 
@@ -225,70 +225,76 @@ class FunnelPostgresIntegration(unittest.TestCase):
 
 class StartupBootstrapGateTests(unittest.TestCase):
     def test_startup_mutations_require_explicit_staging_opt_in(self):
-        # The offline contract workflow intentionally installs no database driver.
-        # Stub only the import surface; startup functions are mocked below, so no
-        # connection or database operation can occur in this test.
-        try:
-            import psycopg  # noqa: F401
-        except ModuleNotFoundError:
-            psycopg_stub = types.ModuleType("psycopg")
-            rows_stub = types.ModuleType("psycopg.rows")
-            rows_stub.dict_row = object()
-            psycopg_stub.rows = rows_stub
-            psycopg_stub.connect = mock.Mock(
-                side_effect=AssertionError("startup gate test must not connect to a database")
-            )
-            sys.modules["psycopg"] = psycopg_stub
-            sys.modules["psycopg.rows"] = rows_stub
+        # Execute only the two pure startup-gate functions from main.py's AST.
+        # This keeps the offline safety workflow independent of FastAPI/psycopg
+        # and guarantees no database connection or write can occur here.
+        from pathlib import Path
 
-        import main
+        source_path = Path(__file__).resolve().parents[1] / "main.py"
+        tree = ast.parse(source_path.read_text(encoding="utf-8"))
+        functions = {
+            node.name: node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name in {"startup_bootstrap_enabled", "startup"}
+        }
+        self.assertEqual(set(functions), {"startup_bootstrap_enabled", "startup"})
+
+        startup_node = copy.deepcopy(functions["startup"])
+        startup_node.decorator_list = []
+        module = ast.Module(
+            body=[
+                copy.deepcopy(functions["startup_bootstrap_enabled"]),
+                startup_node,
+            ],
+            type_ignores=[],
+        )
+        ast.fix_missing_locations(module)
+
+        init_db = mock.Mock()
+        seed_amazon = mock.Mock()
+        seed_additional = mock.Mock()
+        namespace = {
+            "os": os,
+            "WERO_MODE": "production",
+            "init_db": init_db,
+            "seed_amazon_campaigns": seed_amazon,
+            "seed_additional_amazon_campaigns": seed_additional,
+        }
+        exec(compile(module, str(source_path), "exec"), namespace)
 
         env_names = ("WERO_DEPLOYMENT_ENV", "WERO_ALLOW_STARTUP_DB_MUTATIONS")
         previous_env = {name: os.environ.get(name) for name in env_names}
-        previous_mode = main.WERO_MODE
         try:
-            # Even a staging flag and opt-in must not enable writes in production mode.
-            main.WERO_MODE = "production"
+            # Production mode blocks bootstrap even if the staging opt-in is set.
+            namespace["WERO_MODE"] = "production"
             os.environ["WERO_DEPLOYMENT_ENV"] = "staging"
             os.environ["WERO_ALLOW_STARTUP_DB_MUTATIONS"] = "1"
+            namespace["startup"]()
 
-            with (
-                mock.patch.object(main, "init_db") as init_db,
-                mock.patch.object(main, "seed_amazon_campaigns") as seed_amazon,
-                mock.patch.object(main, "seed_additional_amazon_campaigns") as seed_additional,
-            ):
-                main.startup()
-                init_db.assert_not_called()
-                seed_amazon.assert_not_called()
-                seed_additional.assert_not_called()
+            # A production deployment label blocks bootstrap too.
+            namespace["WERO_MODE"] = "staging"
+            os.environ["WERO_DEPLOYMENT_ENV"] = "production"
+            namespace["startup"]()
 
-                # A production deployment label must also block bootstrap.
-                main.WERO_MODE = "staging"
-                os.environ["WERO_DEPLOYMENT_ENV"] = "production"
-                main.startup()
-                init_db.assert_not_called()
-                seed_amazon.assert_not_called()
-                seed_additional.assert_not_called()
+            # Staging without explicit opt-in remains read-only.
+            os.environ["WERO_DEPLOYMENT_ENV"] = "staging"
+            os.environ.pop("WERO_ALLOW_STARTUP_DB_MUTATIONS", None)
+            namespace["startup"]()
 
-                # Staging without the explicit mutation opt-in remains read-only.
-                os.environ["WERO_DEPLOYMENT_ENV"] = "staging"
-                os.environ.pop("WERO_ALLOW_STARTUP_DB_MUTATIONS", None)
-                main.startup()
-                init_db.assert_not_called()
-                seed_amazon.assert_not_called()
-                seed_additional.assert_not_called()
+            init_db.assert_not_called()
+            seed_amazon.assert_not_called()
+            seed_additional.assert_not_called()
 
-            # The positive predicate is checked without invoking startup or any write.
+            # The positive predicate is checked without invoking startup.
             os.environ["WERO_ALLOW_STARTUP_DB_MUTATIONS"] = "yes"
-            self.assertTrue(main.startup_bootstrap_enabled())
+            self.assertTrue(namespace["startup_bootstrap_enabled"]())
         finally:
-            main.WERO_MODE = previous_mode
             for name, value in previous_env.items():
                 if value is None:
                     os.environ.pop(name, None)
                 else:
                     os.environ[name] = value
-
 
 if __name__ == "__main__":
     unittest.main()
