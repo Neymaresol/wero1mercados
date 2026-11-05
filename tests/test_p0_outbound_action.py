@@ -75,6 +75,20 @@ class OutboundActionTokenTests(unittest.TestCase):
         self.assertIn("token_hash TEXT PRIMARY KEY", SOURCE)
         self.assertIn("consumed_at TIMESTAMPTZ", SOURCE)
 
+    def test_startup_database_writes_require_explicit_staging_opt_in(self):
+        guard = _function_source("startup_bootstrap_enabled")
+        startup_body = _function_source("startup")
+        self.assertIn('os.getenv("WERO_DEPLOYMENT_ENV"', guard)
+        self.assertIn('os.getenv("WERO_ALLOW_STARTUP_DB_MUTATIONS"', guard)
+        self.assertIn('deployment_env == "staging"', guard)
+        self.assertIn('explicit_opt_in in {"1", "true", "yes"}', guard)
+        self.assertIn('WERO_MODE != "production"', guard)
+        self.assertIn("if not startup_bootstrap_enabled():", startup_body)
+        self.assertLess(
+            startup_body.index("if not startup_bootstrap_enabled():"),
+            startup_body.index("init_db()"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
