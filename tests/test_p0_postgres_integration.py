@@ -2,6 +2,7 @@
 import os
 import re
 import unittest
+from unittest import mock
 
 from p0_outbound_action import digest_action_token
 
@@ -218,6 +219,57 @@ class FunnelPostgresIntegration(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(self.counts(), before_first)
         self.assertEqual(self.counts(self.other_offer_id), before_second)
+
+
+class StartupBootstrapGateTests(unittest.TestCase):
+    def test_startup_mutations_require_explicit_staging_opt_in(self):
+        import main
+
+        env_names = ("WERO_DEPLOYMENT_ENV", "WERO_ALLOW_STARTUP_DB_MUTATIONS")
+        previous_env = {name: os.environ.get(name) for name in env_names}
+        previous_mode = main.WERO_MODE
+        try:
+            # Even a staging flag and opt-in must not enable writes in production mode.
+            main.WERO_MODE = "production"
+            os.environ["WERO_DEPLOYMENT_ENV"] = "staging"
+            os.environ["WERO_ALLOW_STARTUP_DB_MUTATIONS"] = "1"
+
+            with (
+                mock.patch.object(main, "init_db") as init_db,
+                mock.patch.object(main, "seed_amazon_campaigns") as seed_amazon,
+                mock.patch.object(main, "seed_additional_amazon_campaigns") as seed_additional,
+            ):
+                main.startup()
+                init_db.assert_not_called()
+                seed_amazon.assert_not_called()
+                seed_additional.assert_not_called()
+
+                # A production deployment label must also block bootstrap.
+                main.WERO_MODE = "staging"
+                os.environ["WERO_DEPLOYMENT_ENV"] = "production"
+                main.startup()
+                init_db.assert_not_called()
+                seed_amazon.assert_not_called()
+                seed_additional.assert_not_called()
+
+                # Staging without the explicit mutation opt-in remains read-only.
+                os.environ["WERO_DEPLOYMENT_ENV"] = "staging"
+                os.environ.pop("WERO_ALLOW_STARTUP_DB_MUTATIONS", None)
+                main.startup()
+                init_db.assert_not_called()
+                seed_amazon.assert_not_called()
+                seed_additional.assert_not_called()
+
+            # The positive predicate is checked without invoking startup or any write.
+            os.environ["WERO_ALLOW_STARTUP_DB_MUTATIONS"] = "yes"
+            self.assertTrue(main.startup_bootstrap_enabled())
+        finally:
+            main.WERO_MODE = previous_mode
+            for name, value in previous_env.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
 
 
 if __name__ == "__main__":
