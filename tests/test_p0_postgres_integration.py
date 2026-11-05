@@ -1,6 +1,8 @@
 """Actual FastAPI + isolated PostgreSQL route tests; never target production."""
 import os
 import re
+import sys
+import types
 import unittest
 from unittest import mock
 
@@ -223,6 +225,22 @@ class FunnelPostgresIntegration(unittest.TestCase):
 
 class StartupBootstrapGateTests(unittest.TestCase):
     def test_startup_mutations_require_explicit_staging_opt_in(self):
+        # The offline contract workflow intentionally installs no database driver.
+        # Stub only the import surface; startup functions are mocked below, so no
+        # connection or database operation can occur in this test.
+        try:
+            import psycopg  # noqa: F401
+        except ModuleNotFoundError:
+            psycopg_stub = types.ModuleType("psycopg")
+            rows_stub = types.ModuleType("psycopg.rows")
+            rows_stub.dict_row = object()
+            psycopg_stub.rows = rows_stub
+            psycopg_stub.connect = mock.Mock(
+                side_effect=AssertionError("startup gate test must not connect to a database")
+            )
+            sys.modules["psycopg"] = psycopg_stub
+            sys.modules["psycopg.rows"] = rows_stub
+
         import main
 
         env_names = ("WERO_DEPLOYMENT_ENV", "WERO_ALLOW_STARTUP_DB_MUTATIONS")
