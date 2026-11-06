@@ -250,6 +250,20 @@ def init_db():
             )
             """)
             cur.execute("""
+            CREATE TABLE IF NOT EXISTS outbound_action_tokens (
+                token_hash TEXT PRIMARY KEY,
+                offer_id BIGINT NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+                channel TEXT NOT NULL DEFAULT 'direct',
+                campaign TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                consumed_at TIMESTAMPTZ
+            )
+            """)
+            cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_outbound_action_tokens_created_at
+            ON outbound_action_tokens(created_at)
+            """)
+            cur.execute("""
             CREATE TABLE IF NOT EXISTS conversions (
                 id BIGSERIAL PRIMARY KEY,
                 external_id TEXT NOT NULL UNIQUE,
@@ -382,8 +396,24 @@ def seed_amazon_campaigns():
         conn.commit()
 
 
+def startup_bootstrap_enabled():
+    """Allow startup DDL/seeds only after an explicit staging-only opt-in."""
+    deployment_env = os.getenv("WERO_DEPLOYMENT_ENV", "").strip().lower()
+    explicit_opt_in = os.getenv("WERO_ALLOW_STARTUP_DB_MUTATIONS", "").strip().lower()
+    return (
+        deployment_env == "staging"
+        and explicit_opt_in in {"1", "true", "yes"}
+        and WERO_MODE != "production"
+    )
+
+
 @app.on_event("startup")
 def startup():
+    # Production and default staging startup must be side-effect-free.
+    # Schema changes and catalogue seeds require a separately approved,
+    # explicitly marked staging bootstrap operation.
+    if not startup_bootstrap_enabled():
+        return
     init_db()
     seed_amazon_campaigns()
     seed_additional_amazon_campaigns()
@@ -935,23 +965,30 @@ def go_offer_landing(
         raise HTTPException(status_code=404, detail="Oferta indisponivel")
     validate_authorized_url(row["authorized_url"], row["domain"])
     require_affiliate_attribution(row["authorized_url"], row["domain"])
-    # A GET may be a link preview; exclude declared prefetch/prerender only.
-    # Other GETs remain unverified visits, never authenticated intent.
+    # Issue a short-lived, single-use action token. It prevents cross-site form
+    # submission and replay; it does NOT prove a human or partner-authenticated intent.
     from p0_prefetch_guard import should_count_landing_visit
-    if should_count_landing_visit(request.headers):
-        with db() as conn:
-            with conn.cursor() as cur:
+    from p0_outbound_action import digest_action_token
+    action_token = secrets.token_urlsafe(32)
+    token_hash = digest_action_token(action_token)
+    with db() as conn:
+        with conn.cursor() as cur:
+            if should_count_landing_visit(request.headers):
                 cur.execute(
                     "INSERT INTO offer_landing_visits(offer_id,channel,campaign) VALUES(%s,%s,%s)",
                     (offer_id, channel, campaign),
                 )
-            conn.commit()
+            cur.execute(
+                """INSERT INTO outbound_action_tokens(token_hash,offer_id,channel,campaign)
+                   VALUES(%s,%s,%s,%s)""",
+                (token_hash, offer_id, channel, campaign),
+            )
+        conn.commit()
     title = html.escape(row["title"])
     partner = html.escape(row["partner_name"])
     cta_label = ("Conferir preço e disponibilidade na Amazon →"
                  if row["domain"] == "amazon.com.br" else "Ver oferta no parceiro →")
-    safe_query = html.escape(urlencode({"channel": channel, "campaign": campaign}), quote=True)
-    return HTMLResponse(f"""<!doctype html>
+    response = HTMLResponse(f"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><title>{title} | Wero1Mercados</title>
 <style>
@@ -968,22 +1005,39 @@ small{{display:block;color:#536172;line-height:1.6;margin-top:18px}}
 </style></head><body><header>Wero1Mercados · Brasil</header>
 <main><span class="tag">Oferta de parceiro</span><h1>{title}</h1>
 <p>Conheça esta oferta no site do parceiro e confira preço, disponibilidade, entrega e condições atualizadas antes de comprar.</p>
-<form method="post" action="/out/{offer_id}?{safe_query}">
+<form method="post" action="/out/{offer_id}">
+<input type="hidden" name="action_token" value="{html.escape(action_token, quote=True)}">
 <button type="submit">{cta_label}</button></form>
 <div class="partner"><strong>Loja parceira:</strong> {partner}</div>
 <small>Publicidade / link de associado: compras qualificadas podem gerar comissão. Você será encaminhado ao site do parceiro somente após tocar no botão. A compra e o pagamento são realizados no ambiente do parceiro.</small>
 </main></body></html>""")
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 @app.post("/out/{offer_id}")
-def confirm_offer_click(
+async def confirm_offer_click(
     offer_id: int,
-    channel: str = Query(default="direct", max_length=40),
-    campaign: str = Query(default="", max_length=80),
+    request: Request,
 ):
-    # Untrusted campaign labels: normalize before persisting and forwarding.
-    channel = classify_channel(channel)
-    campaign = safe_campaign(campaign)
+    # The landing-issued token is short-lived, offer-bound and single-use.
+    # Clicks remain consultative only; this is not authenticated INT evidence.
+    from p0_outbound_action import MAX_BODY_BYTES, digest_action_token, extract_action_token
+    try:
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > MAX_BODY_BYTES:
+                raise HTTPException(status_code=413, detail="Formulário excede o limite permitido")
+        action_token = extract_action_token(
+            request.headers.get("content-type", ""),
+            bytes(body),
+        )
+        token_hash = digest_action_token(action_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Ação inválida ou expirada") from exc
+
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -997,14 +1051,29 @@ def confirm_offer_click(
                 raise HTTPException(status_code=404, detail="Oferta indisponivel")
             validate_authorized_url(row["authorized_url"], row["domain"])
             require_affiliate_attribution(row["authorized_url"], row["domain"])
+
+            # Atomic consume + click insert share one transaction. A replay,
+            # expired token or token for another offer cannot create a click.
+            cur.execute("""
+                UPDATE outbound_action_tokens
+                SET consumed_at=NOW()
+                WHERE token_hash=%s
+                  AND offer_id=%s
+                  AND consumed_at IS NULL
+                  AND created_at >= NOW() - INTERVAL '10 minutes'
+                RETURNING channel, campaign
+            """, (token_hash, offer_id))
+            action = cur.fetchone()
+            if not action:
+                raise HTTPException(status_code=403, detail="Ação inválida, reutilizada ou expirada")
+
             cur.execute(
                 """INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at)
                    VALUES(%s,%s,%s,%s,NOW())""",
-                (offer_id, channel, campaign, SERVICE),
+                (offer_id, action["channel"], action["campaign"], SERVICE),
             )
             target = row["authorized_url"]
     return RedirectResponse(target, status_code=303)
-
 
 class ProviderConversionIn(BaseModel):
     external_id: str = Field(min_length=1, max_length=200)
