@@ -21,6 +21,7 @@ def source_of(name):
 
 def test_shared_provider_readiness_gate_is_fail_closed():
     assert "po.available = TRUE" in SOURCE
+    assert "po.provider_verified = TRUE" in SOURCE
     assert "po.price_brl > 0" in SOURCE
     assert "po.source_updated_at IS NOT NULL" in SOURCE
     assert "po.source_updated_at >= NOW() - INTERVAL '7 days'" in SOURCE
@@ -58,8 +59,8 @@ def test_manual_admin_registration_never_claims_provider_verification():
     code = source_of("register_commercial_offer")
     assert "manual_admin_unverified" in code
     assert "source_updated_at=NULL" in code
-    assert "available,active,source_updated_at" in code
-    assert "FALSE,TRUE,NULL" in code
+    assert "available,provider_verified,active,source_updated_at" in code
+    assert "FALSE,FALSE,TRUE,NULL" in code
 
 
 def test_financial_confirmation_route_is_not_confused_with_catalog_readiness():
