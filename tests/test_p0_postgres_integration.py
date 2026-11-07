@@ -4,6 +4,7 @@ import re
 import ast
 import copy
 import unittest
+import uuid
 from unittest import mock
 
 from p0_outbound_action import digest_action_token
@@ -40,26 +41,48 @@ class FunnelPostgresIntegration(unittest.TestCase):
                     "ON CONFLICT(domain) DO UPDATE SET active=TRUE RETURNING id"
                 )
                 partner_id = cur.fetchone()[0]
-                cur.execute(
-                    "INSERT INTO offers(partner_id,title,authorized_url,active) "
-                    "VALUES(%s,%s,%s,TRUE) RETURNING id",
-                    (
-                        partner_id,
-                        "Isolated test offer",
-                        "https://www.amazon.com.br/test?tag=isolated-ci-20",
-                    ),
+                cur.execute("SELECT id FROM categories WHERE active=TRUE ORDER BY id LIMIT 1")
+                category_id = cur.fetchone()[0]
+
+                def create_test_offer(sku_label, title, url, available=True, provider_verified=True):
+                    sku = f"p0-{sku_label}-{uuid.uuid4().hex}"
+                    cur.execute(
+                        """INSERT INTO products(category_id,sku,title,market,currency,active,source,last_validated_at,updated_at)
+                           VALUES(%s,%s,%s,'BR','BRL',TRUE,'isolated_test',NOW(),NOW()) RETURNING id""",
+                        (category_id, sku, title),
+                    )
+                    product_id = cur.fetchone()[0]
+                    cur.execute(
+                        """INSERT INTO offers(partner_id,product_id,title,authorized_url,price_brl,commission_brl,active,source,source_updated_at)
+                           VALUES(%s,%s,%s,%s,100,5,TRUE,'provider_feed_authenticated',NOW()) RETURNING id""",
+                        (partner_id, product_id, title, url),
+                    )
+                    offer_id = cur.fetchone()[0]
+                    cur.execute(
+                        """INSERT INTO product_offers(product_id,partner_id,authorized_url,price_brl,commission_brl,available,provider_verified,active,source_updated_at)
+                           VALUES(%s,%s,%s,100,5,%s,%s,TRUE,NOW())""",
+                        (product_id, partner_id, url, available, provider_verified),
+                    )
+                    return offer_id, sku
+
+                cls.offer_id, cls.offer_sku = create_test_offer(
+                    "ready-one", "Isolated test offer",
+                    "https://www.amazon.com.br/test?tag=isolated-ci-20",
                 )
-                cls.offer_id = cur.fetchone()[0]
-                cur.execute(
-                    "INSERT INTO offers(partner_id,title,authorized_url,active) "
-                    "VALUES(%s,%s,%s,TRUE) RETURNING id",
-                    (
-                        partner_id,
-                        "Isolated second test offer",
-                        "https://www.amazon.com.br/test-second?tag=isolated-ci-20",
-                    ),
+                cls.other_offer_id, cls.other_offer_sku = create_test_offer(
+                    "ready-two", "Isolated second test offer",
+                    "https://www.amazon.com.br/test-second?tag=isolated-ci-20",
                 )
-                cls.other_offer_id = cur.fetchone()[0]
+                cls.unready_offer_id, cls.unready_offer_sku = create_test_offer(
+                    "unavailable", "Isolated unavailable offer",
+                    "https://www.amazon.com.br/test-unavailable?tag=isolated-ci-20",
+                    available=False,
+                )
+                cls.unverified_offer_id, cls.unverified_offer_sku = create_test_offer(
+                    "unverified", "Isolated unverified offer",
+                    "https://www.amazon.com.br/test-unverified?tag=isolated-ci-20",
+                    available=True, provider_verified=False,
+                )
 
     @classmethod
     def tearDownClass(cls):
@@ -87,6 +110,70 @@ class FunnelPostgresIntegration(unittest.TestCase):
         match = re.search(r'name="action_token" value="([^"]+)"', response.text)
         self.assertIsNotNone(match, "landing must issue one hidden action token")
         return match.group(1)
+
+    def test_public_catalog_exposes_only_fresh_available_provider_offers(self):
+        offers = self.client.get("/api/offers").json()["offers"]
+        offer_ids = {item["id"] for item in offers}
+        self.assertIn(self.offer_id, offer_ids)
+        self.assertIn(self.other_offer_id, offer_ids)
+        self.assertNotIn(self.unready_offer_id, offer_ids)
+        self.assertNotIn(self.unverified_offer_id, offer_ids)
+
+        products = self.client.get("/api/products").json()["products"]
+        product_skus = {item["sku"] for item in products}
+        self.assertIn(self.offer_sku, product_skus)
+        self.assertIn(self.other_offer_sku, product_skus)
+        self.assertNotIn(self.unready_offer_sku, product_skus)
+        self.assertNotIn(self.unverified_offer_sku, product_skus)
+
+        catalog = self.client.get("/catalogo")
+        self.assertEqual(catalog.status_code, 200)
+        self.assertIn("Isolated test offer", catalog.text)
+        self.assertNotIn("Isolated unavailable offer", catalog.text)
+        self.assertNotIn("Isolated unverified offer", catalog.text)
+
+        unavailable_landing = self.client.get(f"/go/{self.unready_offer_id}")
+        self.assertEqual(unavailable_landing.status_code, 404)
+        unverified_landing = self.client.get(f"/go/{self.unverified_offer_id}")
+        self.assertEqual(unverified_landing.status_code, 404)
+
+    def test_manual_admin_offer_is_not_provider_verified_or_public(self):
+        previous_token = self.main.WERO_ADMIN_TOKEN
+        try:
+            self.main.WERO_ADMIN_TOKEN = "isolated-manual-offer-token"
+            response = self.client.post(
+                "/api/commercial/offers",
+                headers={"Authorization": "Bearer isolated-manual-offer-token"},
+                json={
+                    "partner_name": "Test Amazon",
+                    "partner_domain": "amazon.com.br",
+                    "title": "Manual unverified test offer",
+                    "authorized_url": "https://www.amazon.com.br/manual-test?tag=isolated-ci-20",
+                    "sku": self.offer_sku,
+                    "price_brl": 79.90,
+                    "commission_brl": 3.50,
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            offer_id = response.json()["offer_id"]
+            with self.psycopg.connect(self.url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT source,source_updated_at FROM offers WHERE id=%s", (offer_id,))
+                    offer = cur.fetchone()
+                    self.assertEqual(offer[0], "manual_admin_unverified")
+                    self.assertIsNone(offer[1])
+                    cur.execute(
+                        "SELECT available,provider_verified,source_updated_at FROM product_offers WHERE product_id=(SELECT product_id FROM offers WHERE id=%s) AND authorized_url=%s",
+                        (offer_id, "https://www.amazon.com.br/manual-test?tag=isolated-ci-20"),
+                    )
+                    provider_offer = cur.fetchone()
+                    self.assertFalse(provider_offer[0])
+                    self.assertFalse(provider_offer[1])
+                    self.assertIsNone(provider_offer[2])
+            visible_ids = {item["id"] for item in self.client.get("/api/offers").json()["offers"]}
+            self.assertNotIn(offer_id, visible_ids)
+        finally:
+            self.main.WERO_ADMIN_TOKEN = previous_token
 
     def test_admin_funnel_audit_requires_auth_and_remains_read_only(self):
         previous_token = self.main.WERO_ADMIN_TOKEN

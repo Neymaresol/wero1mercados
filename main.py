@@ -26,6 +26,22 @@ WERO_MODE = os.getenv("WERO_MODE", "homologation").strip().lower()
 if WERO_MODE not in {"production", "homologation"}:
     WERO_MODE = "homologation"
 
+# Public catalog and redirects require a fresh provider-side availability record.
+# Manual admin input and a syntactically valid affiliate URL do not prove availability.
+VERIFIED_OFFER_JOIN_SQL = """
+JOIN product_offers po
+  ON po.product_id = o.product_id
+ AND po.partner_id = o.partner_id
+ AND po.authorized_url = o.authorized_url
+ AND po.active = TRUE
+ AND po.available = TRUE
+ AND po.provider_verified = TRUE
+ AND po.price_brl IS NOT NULL
+ AND po.price_brl > 0
+ AND po.source_updated_at IS NOT NULL
+ AND po.source_updated_at >= NOW() - INTERVAL '7 days'
+"""
+
 app = FastAPI(title=SERVICE, version=VERSION)
 
 @app.head("/", include_in_schema=False)
@@ -141,6 +157,7 @@ def init_db():
                 price_brl NUMERIC(14,2),
                 commission_brl NUMERIC(14,2),
                 available BOOLEAN NOT NULL DEFAULT TRUE,
+                provider_verified BOOLEAN NOT NULL DEFAULT FALSE,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 source_updated_at TIMESTAMPTZ,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -211,6 +228,7 @@ def init_db():
             cur.execute("CREATE INDEX IF NOT EXISTS idx_products_market_active ON products(market, active)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_product_offers_product_active ON product_offers(product_id, active, available)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_product_offers_partner_active ON product_offers(partner_id, active, available)")
+            cur.execute("ALTER TABLE product_offers ADD COLUMN IF NOT EXISTS provider_verified BOOLEAN NOT NULL DEFAULT FALSE")
             cur.execute("""
             ALTER TABLE offers ADD COLUMN IF NOT EXISTS product_id BIGINT REFERENCES products(id)
             """)
@@ -635,14 +653,26 @@ def list_products(
                 SELECT pr.id, pr.sku, pr.title, pr.brand, pr.description,
                        pr.market, pr.currency, pr.source, pr.last_validated_at,
                        c.slug AS category_slug, c.name AS category_name,
-                       COUNT(po.id) FILTER (WHERE po.active=TRUE AND p.active=TRUE) AS active_offers,
-                       MIN(po.price_brl) FILTER (WHERE po.active=TRUE AND p.active=TRUE) AS best_price_brl
+                       COUNT(po.id) AS active_offers,
+                       MIN(po.price_brl) AS best_price_brl
                 FROM products pr
                 LEFT JOIN categories c ON c.id=pr.category_id
-                LEFT JOIN offers po ON po.product_id=pr.id
-                LEFT JOIN partners p ON p.id=po.partner_id
+                JOIN product_offers po ON po.product_id=pr.id
+                JOIN partners p ON p.id=po.partner_id
+                JOIN offers o ON o.product_id=pr.id
+                             AND o.partner_id=po.partner_id
+                             AND o.authorized_url=po.authorized_url
+                             AND o.active=TRUE
                 WHERE pr.active=TRUE
                   AND pr.market='BR'
+                  AND p.active=TRUE
+                  AND po.active=TRUE
+                  AND po.available=TRUE
+                  AND po.provider_verified=TRUE
+                  AND po.price_brl IS NOT NULL
+                  AND po.price_brl > 0
+                  AND po.source_updated_at IS NOT NULL
+                  AND po.source_updated_at >= NOW() - INTERVAL '7 days'
                   AND (%s::text IS NULL OR c.slug=%s)
                 GROUP BY pr.id, c.slug, c.name
                 ORDER BY pr.updated_at DESC, pr.id DESC
@@ -815,15 +845,29 @@ def register_commercial_offer(payload: OfferIn, _admin: None = Depends(require_a
             cur.execute("""
                 INSERT INTO offers(partner_id, product_id, title, authorized_url, price_brl,
                                    commission_brl, active, source, source_updated_at)
-                VALUES(%s,%s,%s,%s,%s,%s,TRUE,'authorized_partner',NOW())
+                VALUES(%s,%s,%s,%s,%s,%s,TRUE,'manual_admin_unverified',NULL)
                 ON CONFLICT(product_id, partner_id, authorized_url)
                 DO UPDATE SET title=EXCLUDED.title, price_brl=EXCLUDED.price_brl,
                               commission_brl=EXCLUDED.commission_brl,
-                              source='authorized_partner', source_updated_at=NOW()
+                              source='manual_admin_unverified', source_updated_at=NULL
                 RETURNING id
             """, (partner_id, product["id"], title, authorized_url,
                   payload.price_brl, payload.commission_brl))
             offer_id = cur.fetchone()["id"]
+            # Manual admin registration never asserts provider availability.
+            cur.execute("""
+                INSERT INTO product_offers(
+                    product_id,partner_id,authorized_url,price_brl,commission_brl,
+                    available,provider_verified,active,source_updated_at
+                )
+                VALUES(%s,%s,%s,%s,%s,FALSE,FALSE,TRUE,NULL)
+                ON CONFLICT(product_id,partner_id,authorized_url)
+                DO UPDATE SET price_brl=EXCLUDED.price_brl,
+                              commission_brl=EXCLUDED.commission_brl,
+                              available=FALSE,provider_verified=FALSE,active=TRUE,
+                              source_updated_at=NULL,updated_at=NOW()
+            """, (product["id"], partner_id, authorized_url,
+                  payload.price_brl, payload.commission_brl))
     return {"status": "registered", "offer_id": offer_id, "financial_rule": "Valores comerciais nao contam como venda ate conversao confirmada pela fonte parceira."}
 
 
@@ -832,9 +876,10 @@ def public_catalog(request: Request, q: str = Query(default="", max_length=80)):
     """Public storefront; only partner-authorized, active offers are displayed."""
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT o.id, o.title, o.authorized_url, p.name AS partner_name, p.domain
                 FROM offers o JOIN partners p ON p.id=o.partner_id
+                {VERIFIED_OFFER_JOIN_SQL}
                 WHERE o.active=TRUE AND p.active=TRUE
                 ORDER BY o.id DESC LIMIT 500
             """)
@@ -890,10 +935,12 @@ Preços e disponibilidade são definidos pelo parceiro.</footer></main></body></
 def list_offers():
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT o.id, o.product_id, o.title, o.price_brl, o.commission_brl, o.active,
+            cur.execute(f"""
+                SELECT o.id, o.product_id, o.title,
+                       po.price_brl AS price_brl, po.commission_brl AS commission_brl, o.active,
                        p.id AS partner_id, p.name AS partner_name, p.domain, o.authorized_url
                 FROM offers o JOIN partners p ON p.id=o.partner_id
+                {VERIFIED_OFFER_JOIN_SQL}
                 WHERE o.active=TRUE AND p.active=TRUE
                 ORDER BY o.id DESC
             """)
@@ -914,11 +961,12 @@ def authorized_storefront_trends():
     """TAG 02: observed internal click trends only; no external popularity claims."""
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT o.id, o.title, p.name AS partner_name, p.domain, o.authorized_url,
                        COUNT(c.id) AS recorded_clicks
                 FROM offers o
                 JOIN partners p ON p.id=o.partner_id
+                {VERIFIED_OFFER_JOIN_SQL}
                 LEFT JOIN clicks c ON c.offer_id=o.id
                 WHERE o.active=TRUE AND p.active=TRUE
                 GROUP BY o.id, o.title, p.name, p.domain, o.authorized_url
@@ -954,10 +1002,11 @@ def go_offer_landing(
     campaign = safe_campaign(campaign)
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT o.id, o.title, o.authorized_url, o.active, p.name AS partner_name,
                        p.domain, p.active AS partner_active
                 FROM offers o JOIN partners p ON p.id=o.partner_id
+                {VERIFIED_OFFER_JOIN_SQL}
                 WHERE o.id=%s
             """, (offer_id,))
             row = cur.fetchone()
@@ -1040,10 +1089,11 @@ async def confirm_offer_click(
 
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT o.id, o.authorized_url, o.active, p.domain,
                        p.active AS partner_active
                 FROM offers o JOIN partners p ON p.id=o.partner_id
+                {VERIFIED_OFFER_JOIN_SQL}
                 WHERE o.id=%s
             """, (offer_id,))
             row = cur.fetchone()
@@ -1143,11 +1193,13 @@ def acquisition():
     # P0: only recent click candidates are consultative; no click can unlock INT.1/INT.2.
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("""SELECT o.id,o.title,o.price_brl,o.commission_brl,
+            cur.execute(f"""SELECT o.id,o.title,po.price_brl,po.commission_brl,
                                   COUNT(c.id) AS clicks,
                                   COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') AS clicks_7d
-                           FROM offers o LEFT JOIN clicks c ON c.offer_id=o.id
+                           FROM offers o
                            JOIN partners p ON p.id=o.partner_id
+                           {VERIFIED_OFFER_JOIN_SQL}
+                           LEFT JOIN clicks c ON c.offer_id=o.id
                            WHERE o.active=TRUE AND p.active=TRUE
                            GROUP BY o.id
                            HAVING COUNT(c.id) > 0
@@ -1165,8 +1217,9 @@ def acquisition():
             sales = cur.fetchone()["c"]
             cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='pending'")
             pending = cur.fetchone()["c"]
-            cur.execute("""SELECT COUNT(*) AS c FROM offers o
+            cur.execute(f"""SELECT COUNT(*) AS c FROM offers o
                            JOIN partners p ON p.id=o.partner_id
+                           {VERIFIED_OFFER_JOIN_SQL}
                            WHERE o.active=TRUE AND p.active=TRUE""")
             active_offers = cur.fetchone()["c"]
 
@@ -1223,8 +1276,13 @@ def acquisition():
 def commercial():
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS c FROM offers o JOIN partners p ON p.id=o.partner_id WHERE o.active=TRUE AND p.active=TRUE")
+            cur.execute(f"""SELECT COUNT(*) AS c FROM offers o
+                            JOIN partners p ON p.id=o.partner_id
+                            {VERIFIED_OFFER_JOIN_SQL}
+                            WHERE o.active=TRUE AND p.active=TRUE""")
             offers = cur.fetchone()["c"]
+            cur.execute("SELECT COUNT(*) AS c FROM offers o JOIN partners p ON p.id=o.partner_id WHERE o.active=TRUE AND p.active=TRUE")
+            registered_offers = cur.fetchone()["c"]
             cur.execute("SELECT COUNT(*) AS c FROM catalog_visits")
             catalog_visits = cur.fetchone()["c"]
             cur.execute("SELECT COUNT(*) AS c FROM clicks")
@@ -1245,6 +1303,7 @@ def commercial():
         "market": "BR",
         "currency": "BRL",
         "active_offers": offers,
+        "registered_offers": registered_offers,
         "catalog_visits": catalog_visits,
         "landing_visits": landing_visits,
         "clicks": clicks,
@@ -1257,21 +1316,58 @@ def commercial():
 
 @app.get("/api/catalog/levels")
 def catalog_levels():
-    """Operational catalog coverage. Counts inventory/offers only; never represents sales."""
+    """Coverage of current provider-verified offers; registered records are reported separately."""
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS c FROM products WHERE active=TRUE AND market='BR'")
+            cur.execute(f"""SELECT COUNT(DISTINCT pr.id) AS c
+                            FROM products pr
+                            JOIN offers o ON o.product_id=pr.id AND o.active=TRUE
+                            JOIN partners p ON p.id=o.partner_id AND p.active=TRUE
+                            {VERIFIED_OFFER_JOIN_SQL}
+                            WHERE pr.active=TRUE AND pr.market='BR'""")
             products = cur.fetchone()["c"]
-            cur.execute("SELECT COUNT(*) AS c FROM offers WHERE active=TRUE")
+            cur.execute(f"""SELECT COUNT(DISTINCT o.id) AS c
+                            FROM offers o JOIN partners p ON p.id=o.partner_id
+                            {VERIFIED_OFFER_JOIN_SQL}
+                            WHERE o.active=TRUE AND p.active=TRUE""")
             offers = cur.fetchone()["c"]
-            cur.execute("""SELECT p.name AS partner, COUNT(DISTINCT o.product_id) AS products, COUNT(o.id) AS offers
-                           FROM partners p LEFT JOIN offers o ON o.partner_id=p.id AND o.active=TRUE
-                           WHERE p.active=TRUE GROUP BY p.id,p.name ORDER BY offers DESC,p.name""")
+            cur.execute("SELECT COUNT(*) AS c FROM offers WHERE active=TRUE")
+            registered_offers = cur.fetchone()["c"]
+            cur.execute(f"""SELECT p.name AS partner,
+                                   COUNT(DISTINCT po.product_id) AS products,
+                                   COUNT(DISTINCT o.id) AS offers
+                            FROM partners p
+                            LEFT JOIN offers o ON o.partner_id=p.id AND o.active=TRUE
+                            LEFT JOIN product_offers po
+                              ON po.product_id=o.product_id
+                             AND po.partner_id=o.partner_id
+                             AND po.authorized_url=o.authorized_url
+                             AND po.active=TRUE AND po.available=TRUE
+                             AND po.provider_verified=TRUE
+                             AND po.price_brl IS NOT NULL AND po.price_brl > 0
+                             AND po.source_updated_at IS NOT NULL
+                             AND po.source_updated_at >= NOW() - INTERVAL '7 days'
+                            WHERE p.active=TRUE
+                            GROUP BY p.id,p.name ORDER BY offers DESC,p.name""")
             partners = cur.fetchall()
-            cur.execute("""SELECT c.slug,c.name,COUNT(DISTINCT pr.id) AS products,COUNT(o.id) AS offers
-                           FROM categories c LEFT JOIN products pr ON pr.category_id=c.id AND pr.active=TRUE
-                           LEFT JOIN offers o ON o.product_id=pr.id AND o.active=TRUE
-                           WHERE c.active=TRUE GROUP BY c.id,c.slug,c.name ORDER BY products DESC,c.name""")
+            cur.execute(f"""SELECT c.slug,c.name,
+                                   COUNT(DISTINCT po.product_id) FILTER (WHERE p.id IS NOT NULL) AS products,
+                                   COUNT(DISTINCT po.id) FILTER (WHERE p.id IS NOT NULL) AS offers
+                            FROM categories c
+                            LEFT JOIN products pr ON pr.category_id=c.id AND pr.active=TRUE
+                            LEFT JOIN offers o ON o.product_id=pr.id AND o.active=TRUE
+                            LEFT JOIN partners p ON p.id=o.partner_id AND p.active=TRUE
+                            LEFT JOIN product_offers po
+                              ON po.product_id=o.product_id
+                             AND po.partner_id=o.partner_id
+                             AND po.authorized_url=o.authorized_url
+                             AND po.active=TRUE AND po.available=TRUE
+                             AND po.provider_verified=TRUE
+                             AND po.price_brl IS NOT NULL AND po.price_brl > 0
+                             AND po.source_updated_at IS NOT NULL
+                             AND po.source_updated_at >= NOW() - INTERVAL '7 days'
+                            WHERE c.active=TRUE
+                            GROUP BY c.id,c.slug,c.name ORDER BY products DESC,c.name""")
             categories = cur.fetchall()
     if products >= 1000: level="L4_SCALE"
     elif products >= 100: level="L3_GROWTH"
@@ -1279,8 +1375,9 @@ def catalog_levels():
     elif products >= 1: level="L1_BOOTSTRAP"
     else: level="L0_EMPTY"
     return {"service":SERVICE,"version":VERSION,"market":"BR","catalog_level":level,
-            "active_products":products,"active_offers":offers,"partners":partners,"categories":categories,
-            "rule":"Nivel mede cobertura de catalogo/ofertas; nao representa vendas, receita ou comissao."}
+            "active_products":products,"active_offers":offers,"registered_offers":registered_offers,
+            "partners":partners,"categories":categories,
+            "rule":"Nivel mede ofertas com disponibilidade, preco positivo e fonte atualizada nos ultimos 7 dias; nao representa vendas, receita ou comissao."}
 
 
 @app.get("/api/ai/campaign-briefs")
@@ -1295,10 +1392,11 @@ def ai_campaign_briefs(
         raise HTTPException(status_code=422, detail="Unsupported channel")
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT o.id, o.title, o.authorized_url, o.active,
                        p.active AS partner_active
                 FROM offers o JOIN partners p ON p.id=o.partner_id
+                {VERIFIED_OFFER_JOIN_SQL}
                 WHERE o.active=TRUE AND p.active=TRUE
                 ORDER BY o.id
             """)
@@ -1379,12 +1477,13 @@ def premium_ai_ranking(
         with conn.cursor() as cur:
             cur.execute("SELECT key,value FROM premium_settings WHERE key IN ('campaign_priority','ai_review_mode')")
             settings = {r["key"]: r["value"] for r in cur.fetchall()}
-            cur.execute("""
+            cur.execute(f"""
                 SELECT o.id AS offer_id, o.title, p.name AS partner,
                        COUNT(c.id) AS tracked_clicks,
                        COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') AS clicks_7d
                 FROM offers o
                 JOIN partners p ON p.id=o.partner_id
+                {VERIFIED_OFFER_JOIN_SQL}
                 LEFT JOIN clicks c ON c.offer_id=o.id
                 WHERE o.active=TRUE AND p.active=TRUE
                 GROUP BY o.id,o.title,p.name
@@ -1426,10 +1525,11 @@ def werozinha_one_click_amazon(
     campaign = safe_campaign(campaign)
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT o.authorized_url, o.active, p.domain,
                        p.active AS partner_active
                 FROM offers o JOIN partners p ON p.id=o.partner_id
+                {VERIFIED_OFFER_JOIN_SQL}
                 WHERE o.id=%s AND p.domain='amazon.com.br'
             """, (offer_id,))
             row = cur.fetchone()
@@ -1454,8 +1554,9 @@ def werozinha_amazon_campaign():
     )
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("""SELECT o.id,o.title,o.authorized_url,p.domain FROM offers o
+            cur.execute(f"""SELECT o.id,o.title,o.authorized_url,p.domain FROM offers o
                 JOIN partners p ON p.id=o.partner_id
+                {VERIFIED_OFFER_JOIN_SQL}
                 WHERE o.active=TRUE AND p.active=TRUE AND p.domain='amazon.com.br'""")
             rows = cur.fetchall()
     by_title = {str(row["title"]): row for row in rows}
