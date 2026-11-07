@@ -656,6 +656,10 @@ def list_products(
                 LEFT JOIN categories c ON c.id=pr.category_id
                 JOIN product_offers po ON po.product_id=pr.id
                 JOIN partners p ON p.id=po.partner_id
+                JOIN offers o ON o.product_id=pr.id
+                             AND o.partner_id=po.partner_id
+                             AND o.authorized_url=po.authorized_url
+                             AND o.active=TRUE
                 WHERE pr.active=TRUE
                   AND pr.market='BR'
                   AND p.active=TRUE
