@@ -44,7 +44,7 @@ class FunnelPostgresIntegration(unittest.TestCase):
                 cur.execute("SELECT id FROM categories WHERE active=TRUE ORDER BY id LIMIT 1")
                 category_id = cur.fetchone()[0]
 
-                def create_test_offer(sku_label, title, url, available=True):
+                def create_test_offer(sku_label, title, url, available=True, provider_verified=True):
                     sku = f"p0-{sku_label}-{uuid.uuid4().hex}"
                     cur.execute(
                         """INSERT INTO products(category_id,sku,title,market,currency,active,source,last_validated_at,updated_at)
@@ -59,9 +59,9 @@ class FunnelPostgresIntegration(unittest.TestCase):
                     )
                     offer_id = cur.fetchone()[0]
                     cur.execute(
-                        """INSERT INTO product_offers(product_id,partner_id,authorized_url,price_brl,commission_brl,available,active,source_updated_at)
-                           VALUES(%s,%s,%s,100,5,%s,TRUE,NOW())""",
-                        (product_id, partner_id, url, available),
+                        """INSERT INTO product_offers(product_id,partner_id,authorized_url,price_brl,commission_brl,available,provider_verified,active,source_updated_at)
+                           VALUES(%s,%s,%s,100,5,%s,%s,TRUE,NOW())""",
+                        (product_id, partner_id, url, available, provider_verified),
                     )
                     return offer_id, sku
 
@@ -77,6 +77,11 @@ class FunnelPostgresIntegration(unittest.TestCase):
                     "unavailable", "Isolated unavailable offer",
                     "https://www.amazon.com.br/test-unavailable?tag=isolated-ci-20",
                     available=False,
+                )
+                cls.unverified_offer_id, cls.unverified_offer_sku = create_test_offer(
+                    "unverified", "Isolated unverified offer",
+                    "https://www.amazon.com.br/test-unverified?tag=isolated-ci-20",
+                    available=True, provider_verified=False,
                 )
 
     @classmethod
@@ -112,20 +117,25 @@ class FunnelPostgresIntegration(unittest.TestCase):
         self.assertIn(self.offer_id, offer_ids)
         self.assertIn(self.other_offer_id, offer_ids)
         self.assertNotIn(self.unready_offer_id, offer_ids)
+        self.assertNotIn(self.unverified_offer_id, offer_ids)
 
         products = self.client.get("/api/products").json()["products"]
         product_skus = {item["sku"] for item in products}
         self.assertIn(self.offer_sku, product_skus)
         self.assertIn(self.other_offer_sku, product_skus)
         self.assertNotIn(self.unready_offer_sku, product_skus)
+        self.assertNotIn(self.unverified_offer_sku, product_skus)
 
         catalog = self.client.get("/catalogo")
         self.assertEqual(catalog.status_code, 200)
         self.assertIn("Isolated test offer", catalog.text)
         self.assertNotIn("Isolated unavailable offer", catalog.text)
+        self.assertNotIn("Isolated unverified offer", catalog.text)
 
         unavailable_landing = self.client.get(f"/go/{self.unready_offer_id}")
         self.assertEqual(unavailable_landing.status_code, 404)
+        unverified_landing = self.client.get(f"/go/{self.unverified_offer_id}")
+        self.assertEqual(unverified_landing.status_code, 404)
 
     def test_manual_admin_offer_is_not_provider_verified_or_public(self):
         previous_token = self.main.WERO_ADMIN_TOKEN
@@ -153,12 +163,13 @@ class FunnelPostgresIntegration(unittest.TestCase):
                     self.assertEqual(offer[0], "manual_admin_unverified")
                     self.assertIsNone(offer[1])
                     cur.execute(
-                        "SELECT available,source_updated_at FROM product_offers WHERE product_id=(SELECT product_id FROM offers WHERE id=%s) AND authorized_url=%s",
+                        "SELECT available,provider_verified,source_updated_at FROM product_offers WHERE product_id=(SELECT product_id FROM offers WHERE id=%s) AND authorized_url=%s",
                         (offer_id, "https://www.amazon.com.br/manual-test?tag=isolated-ci-20"),
                     )
                     provider_offer = cur.fetchone()
                     self.assertFalse(provider_offer[0])
-                    self.assertIsNone(provider_offer[1])
+                    self.assertFalse(provider_offer[1])
+                    self.assertIsNone(provider_offer[2])
             visible_ids = {item["id"] for item in self.client.get("/api/offers").json()["offers"]}
             self.assertNotIn(offer_id, visible_ids)
         finally:
