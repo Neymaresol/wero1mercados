@@ -668,6 +668,7 @@ def list_products(
                   AND p.active=TRUE
                   AND po.active=TRUE
                   AND po.available=TRUE
+                  AND po.provider_verified=TRUE
                   AND po.price_brl IS NOT NULL
                   AND po.price_brl > 0
                   AND po.source_updated_at IS NOT NULL
@@ -1342,6 +1343,7 @@ def catalog_levels():
                              AND po.partner_id=o.partner_id
                              AND po.authorized_url=o.authorized_url
                              AND po.active=TRUE AND po.available=TRUE
+                             AND po.provider_verified=TRUE
                              AND po.price_brl IS NOT NULL AND po.price_brl > 0
                              AND po.source_updated_at IS NOT NULL
                              AND po.source_updated_at >= NOW() - INTERVAL '7 days'
@@ -1360,6 +1362,7 @@ def catalog_levels():
                              AND po.partner_id=o.partner_id
                              AND po.authorized_url=o.authorized_url
                              AND po.active=TRUE AND po.available=TRUE
+                             AND po.provider_verified=TRUE
                              AND po.price_brl IS NOT NULL AND po.price_brl > 0
                              AND po.source_updated_at IS NOT NULL
                              AND po.source_updated_at >= NOW() - INTERVAL '7 days'
