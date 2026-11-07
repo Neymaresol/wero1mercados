@@ -51,6 +51,7 @@ def test_products_api_uses_matching_ready_offer_and_partner_rows():
     assert "JOIN partners p ON p.id=po.partner_id" in code
     assert "JOIN offers o ON o.product_id=pr.id" in code
     assert "po.available=TRUE" in code
+    assert "po.provider_verified=TRUE" in code
     assert "po.price_brl > 0" in code
     assert "po.source_updated_at >= NOW() - INTERVAL '7 days'" in code
 
