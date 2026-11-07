@@ -35,6 +35,7 @@ JOIN product_offers po
  AND po.authorized_url = o.authorized_url
  AND po.active = TRUE
  AND po.available = TRUE
+ AND po.provider_verified = TRUE
  AND po.price_brl IS NOT NULL
  AND po.price_brl > 0
  AND po.source_updated_at IS NOT NULL
@@ -156,6 +157,7 @@ def init_db():
                 price_brl NUMERIC(14,2),
                 commission_brl NUMERIC(14,2),
                 available BOOLEAN NOT NULL DEFAULT TRUE,
+                provider_verified BOOLEAN NOT NULL DEFAULT FALSE,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 source_updated_at TIMESTAMPTZ,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -226,6 +228,7 @@ def init_db():
             cur.execute("CREATE INDEX IF NOT EXISTS idx_products_market_active ON products(market, active)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_product_offers_product_active ON product_offers(product_id, active, available)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_product_offers_partner_active ON product_offers(partner_id, active, available)")
+            cur.execute("ALTER TABLE product_offers ADD COLUMN IF NOT EXISTS provider_verified BOOLEAN NOT NULL DEFAULT FALSE")
             cur.execute("""
             ALTER TABLE offers ADD COLUMN IF NOT EXISTS product_id BIGINT REFERENCES products(id)
             """)
@@ -854,13 +857,13 @@ def register_commercial_offer(payload: OfferIn, _admin: None = Depends(require_a
             cur.execute("""
                 INSERT INTO product_offers(
                     product_id,partner_id,authorized_url,price_brl,commission_brl,
-                    available,active,source_updated_at
+                    available,provider_verified,active,source_updated_at
                 )
-                VALUES(%s,%s,%s,%s,%s,FALSE,TRUE,NULL)
+                VALUES(%s,%s,%s,%s,%s,FALSE,FALSE,TRUE,NULL)
                 ON CONFLICT(product_id,partner_id,authorized_url)
                 DO UPDATE SET price_brl=EXCLUDED.price_brl,
                               commission_brl=EXCLUDED.commission_brl,
-                              available=FALSE,active=TRUE,
+                              available=FALSE,provider_verified=FALSE,active=TRUE,
                               source_updated_at=NULL,updated_at=NOW()
             """, (product["id"], partner_id, authorized_url,
                   payload.price_brl, payload.commission_brl))
