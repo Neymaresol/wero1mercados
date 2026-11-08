@@ -24,6 +24,8 @@ jobs:
     env:
       P0_TEST_DATABASE_URL: postgresql://p0test:p0test@localhost:5432/p0test
       WERO_MODE: homologation
+      WERO_DEPLOYMENT_ENV: staging
+      WERO_ALLOW_STARTUP_DB_MUTATIONS: "true"
       DATABASE_URL: postgresql://p0test:p0test@localhost:5432/p0test
     steps:
       - uses: actions/checkout@v4
@@ -32,7 +34,9 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements.txt httpx2
       - name: Compile P0 Python
-        run: python -m py_compile main.py p0_conversion_gate.py scripts/p0_database_identity.py tests/test_p0_postgres_integration.py
+        run: python -m py_compile main.py p0_conversion_gate.py p0_startup_guard.py scripts/p0_database_identity.py tests/test_p0_startup_bootstrap_guard.py tests/test_p0_postgres_integration.py
+      - name: Startup mutation guard tests
+        run: python -m unittest discover -s tests -p 'test_p0_startup_bootstrap_guard.py' -v
       - name: Compile outbound token helper when present
         run: |
           if [ -f p0_outbound_action.py ]; then python -m py_compile p0_outbound_action.py; fi
