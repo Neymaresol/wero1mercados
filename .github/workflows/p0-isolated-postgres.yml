@@ -24,6 +24,8 @@ jobs:
     env:
       P0_TEST_DATABASE_URL: postgresql://p0test:p0test@localhost:5432/p0test
       WERO_MODE: homologation
+      WERO_DEPLOYMENT_ENV: staging
+      WERO_ALLOW_STARTUP_DB_MUTATIONS: "true"
       DATABASE_URL: postgresql://p0test:p0test@localhost:5432/p0test
     steps:
       - uses: actions/checkout@v4
