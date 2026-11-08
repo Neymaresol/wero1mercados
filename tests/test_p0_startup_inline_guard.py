@@ -1,7 +1,7 @@
-"""Regression tests for the inline startup DDL/seed fail-closed gate.
+"""Dependency-free regression tests for the inline startup DDL/seed gate.
 
-These tests import the application module but never invoke its startup handler
-or connect to a database. They verify only environment gating and AST placement.
+The tests compile only the small gate function from main.py; they never import
+the application, invoke startup, or connect to a database.
 """
 import ast
 import os
