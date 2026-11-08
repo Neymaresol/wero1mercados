@@ -43,7 +43,7 @@ class StartupBootstrapGateTests(unittest.TestCase):
         }, clear=False), patch.object(main, "WERO_MODE", "production"):
             self.assertFalse(main.startup_bootstrap_enabled())
 
-    def test_all_startup_mutations_are_inside_the_gate(self):
+    def test_all_startup_mutations_are_behind_the_fail_closed_gate(self):
         source = Path("main.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
         startup = next(
@@ -54,22 +54,27 @@ class StartupBootstrapGateTests(unittest.TestCase):
         gate = next(
             node for node in startup.body
             if isinstance(node, ast.If)
-            and isinstance(node.test, ast.Call)
-            and isinstance(node.test.func, ast.Name)
-            and node.test.func.id == "startup_bootstrap_enabled"
+            and isinstance(node.test, ast.UnaryOp)
+            and isinstance(node.test.op, ast.Not)
+            and isinstance(node.test.operand, ast.Call)
+            and isinstance(node.test.operand.func, ast.Name)
+            and node.test.operand.func.id == "startup_bootstrap_enabled"
         )
+        self.assertTrue(any(isinstance(statement, ast.Return) for statement in gate.body))
         mutators = {"init_db", "seed_amazon_campaigns", "seed_additional_amazon_campaigns"}
-        guarded = {
+        calls = [
+            node for node in ast.walk(startup)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in mutators
+        ]
+        self.assertEqual(mutators, {node.func.id for node in calls})
+        self.assertTrue(all(node.lineno > gate.lineno for node in calls))
+        calls_inside_gate = {
             node.func.id for statement in gate.body for node in ast.walk(statement)
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         }
-        unguarded = {
-            node.func.id for statement in startup.body if statement is not gate
-            for node in ast.walk(statement)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-        }
-        self.assertTrue(mutators.issubset(guarded))
-        self.assertTrue(mutators.isdisjoint(unguarded))
+        self.assertTrue(mutators.isdisjoint(calls_inside_gate))
 
 
 if __name__ == "__main__":
