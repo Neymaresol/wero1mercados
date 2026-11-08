@@ -56,6 +56,17 @@ class OutboundActionTokenTests(unittest.TestCase):
         self.assertIn('response.headers["Cache-Control"] = "no-store, private"', body)
         self.assertNotIn("INSERT INTO clicks", body)
 
+    def test_prefetch_is_short_circuited_before_database_or_token_writes(self):
+        body = _function_source("go_offer_landing")
+        guard = body.index("if not should_count_landing_visit(request.headers):")
+        response = body.index("return Response(", guard)
+        first_database_access = body.index("with db() as conn:")
+        token_write = body.index("INSERT INTO outbound_action_tokens")
+        self.assertLess(guard, response)
+        self.assertLess(response, first_database_access)
+        self.assertLess(response, token_write)
+        self.assertNotIn("if should_count_landing_visit", body)
+
     def test_out_consumes_unexpired_token_once_before_inserting_click(self):
         body = _function_source("confirm_offer_click")
         self.assertIn("extract_action_token", body)
