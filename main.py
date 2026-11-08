@@ -997,6 +997,13 @@ def go_offer_landing(
     channel: str = Query(default="direct", max_length=40),
     campaign: str = Query(default="", max_length=80),
 ):
+    # Browser prefetch/prerender must not create visit or token rows.
+    from p0_prefetch_guard import should_count_landing_visit
+    if not should_count_landing_visit(request.headers):
+        return Response(
+            status_code=204,
+            headers={"Cache-Control": "no-store, private", "Pragma": "no-cache"},
+        )
     # Untrusted campaign labels: normalize before persisting and forwarding.
     channel = classify_channel(channel)
     campaign = safe_campaign(campaign)
@@ -1016,17 +1023,15 @@ def go_offer_landing(
     require_affiliate_attribution(row["authorized_url"], row["domain"])
     # Issue a short-lived, single-use action token. It prevents cross-site form
     # submission and replay; it does NOT prove a human or partner-authenticated intent.
-    from p0_prefetch_guard import should_count_landing_visit
     from p0_outbound_action import digest_action_token
     action_token = secrets.token_urlsafe(32)
     token_hash = digest_action_token(action_token)
     with db() as conn:
         with conn.cursor() as cur:
-            if should_count_landing_visit(request.headers):
-                cur.execute(
-                    "INSERT INTO offer_landing_visits(offer_id,channel,campaign) VALUES(%s,%s,%s)",
-                    (offer_id, channel, campaign),
-                )
+            cur.execute(
+                "INSERT INTO offer_landing_visits(offer_id,channel,campaign) VALUES(%s,%s,%s)",
+                (offer_id, channel, campaign),
+            )
             cur.execute(
                 """INSERT INTO outbound_action_tokens(token_hash,offer_id,channel,campaign)
                    VALUES(%s,%s,%s,%s)""",
