@@ -38,6 +38,8 @@ JOIN product_offers po
  AND po.provider_verified = TRUE
  AND po.price_brl IS NOT NULL
  AND po.price_brl > 0
+ AND po.commission_brl IS NOT NULL
+ AND po.commission_brl > 0
  AND po.source_updated_at IS NOT NULL
  AND po.source_updated_at >= NOW() - INTERVAL '7 days'
 """
@@ -671,6 +673,8 @@ def list_products(
                   AND po.provider_verified=TRUE
                   AND po.price_brl IS NOT NULL
                   AND po.price_brl > 0
+                  AND po.commission_brl IS NOT NULL
+                  AND po.commission_brl > 0
                   AND po.source_updated_at IS NOT NULL
                   AND po.source_updated_at >= NOW() - INTERVAL '7 days'
                   AND (%s::text IS NULL OR c.slug=%s)
@@ -1350,6 +1354,8 @@ def catalog_levels():
                              AND po.active=TRUE AND po.available=TRUE
                              AND po.provider_verified=TRUE
                              AND po.price_brl IS NOT NULL AND po.price_brl > 0
+                             AND po.commission_brl IS NOT NULL
+                             AND po.commission_brl > 0
                              AND po.source_updated_at IS NOT NULL
                              AND po.source_updated_at >= NOW() - INTERVAL '7 days'
                             WHERE p.active=TRUE
@@ -1369,6 +1375,8 @@ def catalog_levels():
                              AND po.active=TRUE AND po.available=TRUE
                              AND po.provider_verified=TRUE
                              AND po.price_brl IS NOT NULL AND po.price_brl > 0
+                             AND po.commission_brl IS NOT NULL
+                             AND po.commission_brl > 0
                              AND po.source_updated_at IS NOT NULL
                              AND po.source_updated_at >= NOW() - INTERVAL '7 days'
                             WHERE c.active=TRUE
