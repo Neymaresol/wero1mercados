@@ -54,14 +54,14 @@ class FunnelPostgresIntegration(unittest.TestCase):
                     product_id = cur.fetchone()[0]
                     cur.execute(
                         """INSERT INTO offers(partner_id,product_id,title,authorized_url,price_brl,commission_brl,active,source,source_updated_at)
-                           VALUES(%s,%s,%s,%s,100,5,TRUE,'provider_feed_authenticated',NOW()) RETURNING id""",
-                        (partner_id, product_id, title, url),
+                           VALUES(%s,%s,%s,%s,100,%s,TRUE,'provider_feed_authenticated',NOW()) RETURNING id""",
+                        (partner_id, product_id, title, url, commission_brl),
                     )
                     offer_id = cur.fetchone()[0]
                     cur.execute(
                         """INSERT INTO product_offers(product_id,partner_id,authorized_url,price_brl,commission_brl,available,provider_verified,active,source_updated_at)
-                           VALUES(%s,%s,%s,100,5,%s,%s,TRUE,NOW())""",
-                        (product_id, partner_id, url, available, provider_verified),
+                           VALUES(%s,%s,%s,100,%s,%s,%s,TRUE,NOW())""",
+                        (product_id, partner_id, url, commission_brl, available, provider_verified),
                     )
                     return offer_id, sku
 
