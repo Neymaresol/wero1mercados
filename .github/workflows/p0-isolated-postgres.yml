@@ -1,16 +1,21 @@
-name: P0 Isolated PostgreSQL Double Check
+name: P0 Isolated PostgreSQL Double Check (PG17/PG18)
 on:
   pull_request:
     branches: [main]
   workflow_dispatch:
 jobs:
   isolated-postgres:
+    name: PostgreSQL ${{ matrix.pg_version }} integration
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg_version: [17, 18]
     permissions:
       contents: read
     services:
       postgres:
-        image: postgres:16
+        image: postgres:${{ matrix.pg_version }}
         env:
           POSTGRES_USER: p0test
           POSTGRES_PASSWORD: p0test
