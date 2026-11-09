@@ -44,7 +44,7 @@ class FunnelPostgresIntegration(unittest.TestCase):
                 cur.execute("SELECT id FROM categories WHERE active=TRUE ORDER BY id LIMIT 1")
                 category_id = cur.fetchone()[0]
 
-                def create_test_offer(sku_label, title, url, available=True, provider_verified=True):
+                def create_test_offer(sku_label, title, url, available=True, provider_verified=True, commission_brl=5):
                     sku = f"p0-{sku_label}-{uuid.uuid4().hex}"
                     cur.execute(
                         """INSERT INTO products(category_id,sku,title,market,currency,active,source,last_validated_at,updated_at)
@@ -83,6 +83,16 @@ class FunnelPostgresIntegration(unittest.TestCase):
                     "https://www.amazon.com.br/test-unverified?tag=isolated-ci-20",
                     available=True, provider_verified=False,
                 )
+                cls.zero_commission_offer_id, cls.zero_commission_offer_sku = create_test_offer(
+                    "zero-commission", "Isolated zero-commission offer",
+                    "https://www.amazon.com.br/test-zero-commission?tag=isolated-ci-20",
+                    commission_brl=0,
+                )
+                cls.missing_commission_offer_id, cls.missing_commission_offer_sku = create_test_offer(
+                    "missing-commission", "Isolated missing-commission offer",
+                    "https://www.amazon.com.br/test-missing-commission?tag=isolated-ci-20",
+                    commission_brl=None,
+                )
 
     @classmethod
     def tearDownClass(cls):
@@ -118,6 +128,8 @@ class FunnelPostgresIntegration(unittest.TestCase):
         self.assertIn(self.other_offer_id, offer_ids)
         self.assertNotIn(self.unready_offer_id, offer_ids)
         self.assertNotIn(self.unverified_offer_id, offer_ids)
+        self.assertNotIn(self.zero_commission_offer_id, offer_ids)
+        self.assertNotIn(self.missing_commission_offer_id, offer_ids)
 
         products = self.client.get("/api/products").json()["products"]
         product_skus = {item["sku"] for item in products}
@@ -125,17 +137,25 @@ class FunnelPostgresIntegration(unittest.TestCase):
         self.assertIn(self.other_offer_sku, product_skus)
         self.assertNotIn(self.unready_offer_sku, product_skus)
         self.assertNotIn(self.unverified_offer_sku, product_skus)
+        self.assertNotIn(self.zero_commission_offer_sku, product_skus)
+        self.assertNotIn(self.missing_commission_offer_sku, product_skus)
 
         catalog = self.client.get("/catalogo")
         self.assertEqual(catalog.status_code, 200)
         self.assertIn("Isolated test offer", catalog.text)
         self.assertNotIn("Isolated unavailable offer", catalog.text)
         self.assertNotIn("Isolated unverified offer", catalog.text)
+        self.assertNotIn("Isolated zero-commission offer", catalog.text)
+        self.assertNotIn("Isolated missing-commission offer", catalog.text)
 
         unavailable_landing = self.client.get(f"/go/{self.unready_offer_id}")
         self.assertEqual(unavailable_landing.status_code, 404)
         unverified_landing = self.client.get(f"/go/{self.unverified_offer_id}")
         self.assertEqual(unverified_landing.status_code, 404)
+        zero_commission_landing = self.client.get(f"/go/{self.zero_commission_offer_id}")
+        self.assertEqual(zero_commission_landing.status_code, 404)
+        missing_commission_landing = self.client.get(f"/go/{self.missing_commission_offer_id}")
+        self.assertEqual(missing_commission_landing.status_code, 404)
 
     def test_manual_admin_offer_is_not_provider_verified_or_public(self):
         previous_token = self.main.WERO_ADMIN_TOKEN
