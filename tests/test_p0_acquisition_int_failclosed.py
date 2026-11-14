@@ -50,3 +50,46 @@ def test_premium_ranking_separates_int_from_recent_consultative_clicks():
     assert '"consultative_offers": offers' in body
     assert "HAVING COUNT(c.id) > 0" in body
     assert "INTERVAL '7 days'" in body
+
+
+def test_zero_int1_or_int2_score_never_enters_authenticated_ranking():
+    offers = [
+        {
+            "offer_id": 81,
+            "int1_score": 0,
+            "int2_score": 0,
+            "int1_verified": True,
+            "int2_verified": True,
+            "source_authenticated": True,
+        },
+        {
+            "offer_id": 82,
+            "int1_score": 7,
+            "int2_score": 0,
+            "int1_verified": True,
+            "int2_verified": True,
+            "source_authenticated": True,
+        },
+        {
+            "offer_id": 83,
+            "int1_score": 0,
+            "int2_score": 7,
+            "int1_verified": True,
+            "int2_verified": True,
+            "source_authenticated": True,
+        },
+    ]
+    evidence = {
+        offer["offer_id"]: {
+            "int1": True,
+            "int2": True,
+            "int1_score": offer["int1_score"],
+            "int2_score": offer["int2_score"],
+            "source_authenticated": True,
+        }
+        for offer in offers
+    }
+
+    # Request-body scores and booleans are not an authenticated event pipeline.
+    assert filter_int_qualified_offers(offers, evidence_by_offer=evidence) == []
+    assert INT_GATE_STATUS == "BLOCKED_NO_VERIFIED_EVENT_PIPELINE"
