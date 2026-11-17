@@ -157,6 +157,38 @@ class FunnelPostgresIntegration(unittest.TestCase):
         missing_commission_landing = self.client.get(f"/go/{self.missing_commission_offer_id}")
         self.assertEqual(missing_commission_landing.status_code, 404)
 
+    def test_inactive_partner_is_excluded_from_public_catalog_and_landing(self):
+        # This test mutates only the disposable localhost PostgreSQL fixture.
+        # No visit, click, conversion, sale, commission, or payment is created.
+        with self.psycopg.connect(self.url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE partners SET active=FALSE WHERE domain=%s RETURNING id",
+                    ("amazon.com.br",),
+                )
+                self.assertIsNotNone(cur.fetchone())
+
+        try:
+            offers = self.client.get("/api/offers").json()["offers"]
+            self.assertNotIn(self.offer_id, {item["id"] for item in offers})
+
+            products = self.client.get("/api/products").json()["products"]
+            self.assertNotIn(self.offer_sku, {item["sku"] for item in products})
+
+            catalog = self.client.get("/catalogo")
+            self.assertEqual(catalog.status_code, 200)
+            self.assertNotIn("Isolated test offer", catalog.text)
+
+            landing = self.client.get(f"/go/{self.offer_id}")
+            self.assertEqual(landing.status_code, 404)
+        finally:
+            with self.psycopg.connect(self.url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE partners SET active=TRUE WHERE domain=%s",
+                        ("amazon.com.br",),
+                    )
+
     def test_manual_admin_offer_is_not_provider_verified_or_public(self):
         previous_token = self.main.WERO_ADMIN_TOKEN
         try:
