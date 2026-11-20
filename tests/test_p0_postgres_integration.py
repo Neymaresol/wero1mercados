@@ -82,6 +82,16 @@ class FunnelPostgresIntegration(unittest.TestCase):
                 clicks = cur.fetchone()[0]
         return visits, clicks
 
+    def token_count(self, offer_id=None):
+        offer_id = self.offer_id if offer_id is None else offer_id
+        with self.psycopg.connect(self.url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM outbound_action_tokens WHERE offer_id=%s",
+                    (offer_id,),
+                )
+                return cur.fetchone()[0]
+
     def action_token(self, response):
         self.assertEqual(response.status_code, 200)
         match = re.search(r'name="action_token" value="([^"]+)"', response.text)
@@ -112,6 +122,21 @@ class FunnelPostgresIntegration(unittest.TestCase):
             self.assertEqual(self.counts(), before)
         finally:
             self.main.WERO_ADMIN_TOKEN = previous_token
+
+    def test_declared_prefetch_returns_204_without_visit_or_action_token(self):
+        for headers in (
+            {"purpose": "prefetch"},
+            {"sec-purpose": "prerender"},
+            {"x-moz": "prefetch"},
+        ):
+            with self.subTest(headers=headers):
+                before_counts = self.counts()
+                before_tokens = self.token_count()
+                response = self.client.get(f"/go/{self.offer_id}", headers=headers)
+                self.assertEqual(response.status_code, 204)
+                self.assertEqual(response.headers.get("cache-control"), "no-store")
+                self.assertEqual(self.counts(), before_counts)
+                self.assertEqual(self.token_count(), before_tokens)
 
     def test_expired_action_token_is_rejected_without_click(self):
         token = "E" * 43
@@ -149,10 +174,12 @@ class FunnelPostgresIntegration(unittest.TestCase):
 
     def test_landing_then_outbound_and_replay_rejected(self):
         before = self.counts()
+        before_tokens = self.token_count()
         landing = self.client.get(f"/go/{self.offer_id}?channel=test&campaign=p0")
         token = self.action_token(landing)
         self.assertEqual(landing.headers.get("cache-control"), "no-store, private")
         self.assertEqual(self.counts(), (before[0] + 1, before[1]))
+        self.assertEqual(self.token_count(), before_tokens + 1)
 
         outbound = self.client.post(
             f"/out/{self.offer_id}",
