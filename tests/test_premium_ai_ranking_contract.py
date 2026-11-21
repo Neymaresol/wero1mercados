@@ -13,6 +13,8 @@ def test_ranking_is_read_only():
     fragment = source.split('def premium_ai_ranking(', 1)[1]
     assert 'FROM offers o' in fragment
     assert 'LEFT JOIN clicks c ON c.offer_id=o.id' in fragment
+    assert 'HAVING COUNT(c.id) > 0' in fragment
+    assert "COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') > 0" in fragment
     assert 'INSERT INTO' not in fragment
     assert 'UPDATE offers' not in fragment
     assert 'NOT_CONNECTED' in fragment
