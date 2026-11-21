@@ -16,7 +16,7 @@ from decimal import Decimal
 import secrets
 import html
 import time
-from fastapi.responses import RedirectResponse, HTMLResponse, Response
+from fastapi.responses import RedirectResponse, HTMLResponse, Response, JSONResponse
 
 VERSION = "1.14.15-BR-rc1"
 SERVICE = "wero1mercados"
@@ -250,6 +250,20 @@ def init_db():
             )
             """)
             cur.execute("""
+            CREATE TABLE IF NOT EXISTS outbound_action_tokens (
+                token_hash TEXT PRIMARY KEY,
+                offer_id BIGINT NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+                channel TEXT NOT NULL DEFAULT 'direct',
+                campaign TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                consumed_at TIMESTAMPTZ
+            )
+            """)
+            cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_outbound_action_tokens_created_at
+            ON outbound_action_tokens(created_at)
+            """)
+            cur.execute("""
             CREATE TABLE IF NOT EXISTS conversions (
                 id BIGSERIAL PRIMARY KEY,
                 external_id TEXT NOT NULL UNIQUE,
@@ -382,8 +396,24 @@ def seed_amazon_campaigns():
         conn.commit()
 
 
+def startup_bootstrap_enabled():
+    """Allow startup DDL/seeds only after an explicit staging-only opt-in."""
+    deployment_env = os.getenv("WERO_DEPLOYMENT_ENV", "").strip().lower()
+    explicit_opt_in = os.getenv("WERO_ALLOW_STARTUP_DB_MUTATIONS", "").strip().lower()
+    return (
+        deployment_env == "staging"
+        and explicit_opt_in in {"1", "true", "yes"}
+        and WERO_MODE != "production"
+    )
+
+
 @app.on_event("startup")
 def startup():
+    # Production and default staging startup must be side-effect-free.
+    # Schema changes and catalogue seeds require a separately approved,
+    # explicitly marked staging bootstrap operation.
+    if not startup_bootstrap_enabled():
+        return
     init_db()
     seed_amazon_campaigns()
     seed_additional_amazon_campaigns()
@@ -410,10 +440,27 @@ def health():
         "market": "BR",
         "currency": "BRL",
         "storage": "postgresql",
-        "storage_persistent": database_ok,
+        "database_reachable": database_ok,
+        "storage_persistent": None,
+        "storage_persistence_verified": False,
+        "storage_persistence_status": "NOT_VERIFIED",
+        "storage_persistence_note": "SELECT 1 verifies database connectivity only; durable persistence requires a write/read-back check and a successful backup restore.",
         "database_ok": database_ok,
         "time": now_iso(),
     }
+
+
+@app.get("/ready", include_in_schema=False)
+def ready():
+    """Readiness HTTP reflects database reachability, not backup verification.
+
+    Persistence assurance remains explicitly NOT_VERIFIED until an independent
+    backup has been restored. A reachable database can serve requests while
+    that separate recovery control is still pending.
+    """
+    from p0_readiness import readiness_http_status
+    report = health()
+    return JSONResponse(status_code=readiness_http_status(report), content=report)
 
 
 @app.get("/assets/werozinha-3d.png", include_in_schema=False)
@@ -875,6 +922,8 @@ def authorized_storefront_trends():
                 LEFT JOIN clicks c ON c.offer_id=o.id
                 WHERE o.active=TRUE AND p.active=TRUE
                 GROUP BY o.id, o.title, p.name, p.domain, o.authorized_url
+                HAVING COUNT(c.id) > 0
+                   AND COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') > 0
                 ORDER BY recorded_clicks DESC, o.id DESC
                 LIMIT 20
             """)
@@ -896,9 +945,14 @@ def authorized_storefront_trends():
 @app.get("/go/{offer_id}", response_class=HTMLResponse)
 def go_offer_landing(
     offer_id: int,
+    request: Request,
     channel: str = Query(default="direct", max_length=40),
     campaign: str = Query(default="", max_length=80),
 ):
+    # Declared prefetch/prerender must not read offer data or issue a token.
+    from p0_prefetch_guard import should_count_landing_visit
+    if not should_count_landing_visit(request.headers):
+        return Response(status_code=204, headers={"Cache-Control": "no-store"})
     # Untrusted campaign labels: normalize before persisting and forwarding.
     channel = classify_channel(channel)
     campaign = safe_campaign(campaign)
@@ -915,19 +969,28 @@ def go_offer_landing(
         raise HTTPException(status_code=404, detail="Oferta indisponivel")
     validate_authorized_url(row["authorized_url"], row["domain"])
     require_affiliate_attribution(row["authorized_url"], row["domain"])
+    # Issue a short-lived, single-use action token. It prevents cross-site form
+    # submission and replay; it does NOT prove a human or partner-authenticated intent.
+    from p0_outbound_action import digest_action_token
+    action_token = secrets.token_urlsafe(32)
+    token_hash = digest_action_token(action_token)
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO offer_landing_visits(offer_id,channel,campaign) VALUES(%s,%s,%s)",
                 (offer_id, channel, campaign),
             )
+            cur.execute(
+                """INSERT INTO outbound_action_tokens(token_hash,offer_id,channel,campaign)
+                   VALUES(%s,%s,%s,%s)""",
+                (token_hash, offer_id, channel, campaign),
+            )
         conn.commit()
     title = html.escape(row["title"])
     partner = html.escape(row["partner_name"])
     cta_label = ("Conferir preço e disponibilidade na Amazon →"
                  if row["domain"] == "amazon.com.br" else "Ver oferta no parceiro →")
-    safe_query = html.escape(urlencode({"channel": channel, "campaign": campaign}), quote=True)
-    return HTMLResponse(f"""<!doctype html>
+    response = HTMLResponse(f"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><title>{title} | Wero1Mercados</title>
 <style>
@@ -944,22 +1007,39 @@ small{{display:block;color:#536172;line-height:1.6;margin-top:18px}}
 </style></head><body><header>Wero1Mercados · Brasil</header>
 <main><span class="tag">Oferta de parceiro</span><h1>{title}</h1>
 <p>Conheça esta oferta no site do parceiro e confira preço, disponibilidade, entrega e condições atualizadas antes de comprar.</p>
-<form method="post" action="/out/{offer_id}?{safe_query}">
+<form method="post" action="/out/{offer_id}">
+<input type="hidden" name="action_token" value="{html.escape(action_token, quote=True)}">
 <button type="submit">{cta_label}</button></form>
 <div class="partner"><strong>Loja parceira:</strong> {partner}</div>
 <small>Publicidade / link de associado: compras qualificadas podem gerar comissão. Você será encaminhado ao site do parceiro somente após tocar no botão. A compra e o pagamento são realizados no ambiente do parceiro.</small>
 </main></body></html>""")
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 @app.post("/out/{offer_id}")
-def confirm_offer_click(
+async def confirm_offer_click(
     offer_id: int,
-    channel: str = Query(default="direct", max_length=40),
-    campaign: str = Query(default="", max_length=80),
+    request: Request,
 ):
-    # Untrusted campaign labels: normalize before persisting and forwarding.
-    channel = classify_channel(channel)
-    campaign = safe_campaign(campaign)
+    # The landing-issued token is short-lived, offer-bound and single-use.
+    # Clicks remain consultative only; this is not authenticated INT evidence.
+    from p0_outbound_action import MAX_BODY_BYTES, digest_action_token, extract_action_token
+    try:
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > MAX_BODY_BYTES:
+                raise HTTPException(status_code=413, detail="Formulário excede o limite permitido")
+        action_token = extract_action_token(
+            request.headers.get("content-type", ""),
+            bytes(body),
+        )
+        token_hash = digest_action_token(action_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Ação inválida ou expirada") from exc
+
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -973,14 +1053,29 @@ def confirm_offer_click(
                 raise HTTPException(status_code=404, detail="Oferta indisponivel")
             validate_authorized_url(row["authorized_url"], row["domain"])
             require_affiliate_attribution(row["authorized_url"], row["domain"])
+
+            # Atomic consume + click insert share one transaction. A replay,
+            # expired token or token for another offer cannot create a click.
+            cur.execute("""
+                UPDATE outbound_action_tokens
+                SET consumed_at=NOW()
+                WHERE token_hash=%s
+                  AND offer_id=%s
+                  AND consumed_at IS NULL
+                  AND created_at >= NOW() - INTERVAL '10 minutes'
+                RETURNING channel, campaign
+            """, (token_hash, offer_id))
+            action = cur.fetchone()
+            if not action:
+                raise HTTPException(status_code=403, detail="Ação inválida, reutilizada ou expirada")
+
             cur.execute(
                 """INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at)
                    VALUES(%s,%s,%s,%s,NOW())""",
-                (offer_id, channel, campaign, SERVICE),
+                (offer_id, action["channel"], action["campaign"], SERVICE),
             )
             target = row["authorized_url"]
     return RedirectResponse(target, status_code=303)
-
 
 class ProviderConversionIn(BaseModel):
     external_id: str = Field(min_length=1, max_length=200)
@@ -1046,35 +1141,84 @@ def ingest_provider_conversion(
 
 @app.get("/api/acquisition")
 def acquisition():
-    """Diagnose the real commercial funnel and prioritize authorized offers without fabricating demand."""
+    """Diagnose the funnel; clicks remain consultative and never unlock INT publication."""
+    # P0: only recent click candidates are consultative; no click can unlock INT.1/INT.2.
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("""SELECT o.id,o.title,o.price_brl,o.commission_brl,COUNT(c.id) AS clicks
+            cur.execute("""SELECT o.id,o.title,o.price_brl,o.commission_brl,
+                                  COUNT(c.id) AS clicks,
+                                  COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') AS clicks_7d
                            FROM offers o LEFT JOIN clicks c ON c.offer_id=o.id
                            JOIN partners p ON p.id=o.partner_id
-                           WHERE o.active=TRUE AND p.active=TRUE GROUP BY o.id
+                           WHERE o.active=TRUE AND p.active=TRUE
+                           GROUP BY o.id
                            HAVING COUNT(c.id) > 0
-                           ORDER BY clicks DESC,o.commission_brl DESC NULLS LAST,o.id""")
-            rows=cur.fetchall()
+                              AND COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') > 0
+                           ORDER BY clicks_7d DESC, clicks DESC,
+                                    o.commission_brl DESC NULLS LAST, o.id""")
+            rows = cur.fetchall()
             cur.execute("SELECT COUNT(*) AS c FROM catalog_visits")
             catalog_visits = cur.fetchone()["c"]
-            cur.execute("SELECT COUNT(*) AS c FROM offer_landing_visits"); landing_visits=cur.fetchone()["c"]
-            cur.execute("SELECT COUNT(*) AS c FROM clicks"); clicks=cur.fetchone()["c"]
-            cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='confirmed'"); sales=cur.fetchone()["c"]
-            cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='pending'"); pending=cur.fetchone()["c"]
-    if not rows: bottleneck,next_action="NO_ACTIVE_OFFERS","IMPORT_AUTHORIZED_OFFERS"
-    elif clicks==0: bottleneck,next_action="NO_TRACKED_TRAFFIC","DISTRIBUTE_TRACKED_CAMPAIGNS"
-    elif pending==0 and sales==0: bottleneck,next_action="NO_CONVERSION_SIGNAL","OPTIMIZE_OFFER_AND_LANDING"
-    elif sales==0: bottleneck,next_action="PENDING_WITHOUT_CONFIRMED_SALE","VERIFY_PROVIDER_AND_OPTIMIZE_CONVERSION"
-    else: bottleneck,next_action="FUNNEL_CONVERTING","SCALE_WINNERS"
-    queue=[{"priority":n+1,"offer_id":r["id"],"title":r["title"],"tracked_clicks":r["clicks"],
-            "tracked_url":f"/go/{r['id']}?channel=campaign&campaign=wero-acquisition",
-            "objective":"FIRST_CONFIRMED_SALE" if sales==0 else "SCALE_CONFIRMED_SALES"}
-           for n,r in enumerate(rows)]
-    return {"engine":"wero-acquisition","service":SERVICE,"version":VERSION,"bottleneck":bottleneck,
-            "next_action":next_action,"active_offers":len(rows),"landing_visits":landing_visits,"tracked_clicks":clicks,
-            "pending_conversions":pending,"confirmed_sales":sales,"campaign_queue":queue,
-            "rule":"Somente conversoes reais confirmadas pela fonte parceira contam como vendas."}
+            cur.execute("SELECT COUNT(*) AS c FROM offer_landing_visits")
+            landing_visits = cur.fetchone()["c"]
+            cur.execute("SELECT COUNT(*) AS c FROM clicks")
+            clicks = cur.fetchone()["c"]
+            cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='confirmed'")
+            sales = cur.fetchone()["c"]
+            cur.execute("SELECT COUNT(*) AS c FROM conversions WHERE status='pending'")
+            pending = cur.fetchone()["c"]
+            cur.execute("""SELECT COUNT(*) AS c FROM offers o
+                           JOIN partners p ON p.id=o.partner_id
+                           WHERE o.active=TRUE AND p.active=TRUE""")
+            active_offers = cur.fetchone()["c"]
+
+    if not rows:
+        bottleneck, next_action = "NO_RECENT_CONSULTATIVE_SIGNAL", "COLLECT_AUTHENTICATED_INTENT"
+    elif pending == 0 and sales == 0:
+        bottleneck, next_action = "NO_CONVERSION_SIGNAL", "WAIT_FOR_PROVIDER_VERIFIED_CONVERSION"
+    elif sales == 0:
+        bottleneck, next_action = "PENDING_WITHOUT_CONFIRMED_SALE", "VERIFY_PROVIDER_AND_REVIEW_FUNNEL"
+    else:
+        bottleneck, next_action = "FUNNEL_HAS_CONFIRMED_SALES", "REVIEW_CONFIRMED_PERFORMANCE"
+
+    from int_qualification import INT_GATE_STATUS
+    consultative_queue = [
+        {
+            "priority": n + 1,
+            "offer_id": r["id"],
+            "title": r["title"],
+            "tracked_clicks": r["clicks"],
+            "clicks_7d": r["clicks_7d"],
+            "tracked_url": f"/go/{r['id']}?channel=campaign&campaign=wero-acquisition",
+            "objective": "FIRST_CONFIRMED_SALE" if sales == 0 else "REVIEW_CONFIRMED_PERFORMANCE",
+            "signal_basis": "unverified_outbound_clicks",
+            "int1_verified": False,
+            "int2_verified": False,
+            "publication_allowed": False,
+            "requires_manual_review": True,
+        }
+        for n, r in enumerate(rows)
+    ]
+    return {
+        "engine": "wero-acquisition",
+        "service": SERVICE,
+        "version": VERSION,
+        "bottleneck": bottleneck,
+        "next_action": next_action,
+        "active_offers": active_offers,
+        "consultative_candidates": len(consultative_queue),
+        "catalog_visits": catalog_visits,
+        "landing_visits": landing_visits,
+        "tracked_clicks": clicks,
+        "pending_conversions": pending,
+        "confirmed_sales": sales,
+        "campaign_queue": [],
+        "campaign_queue_status": INT_GATE_STATUS,
+        "consultative_queue": consultative_queue,
+        "publication_allowed": False,
+        "requires_manual_review": True,
+        "rule": "Cliques são sinais consultivos, não INT autenticado, vendas ou comissões. Publicação bloqueada.",
+    }
 
 
 @app.get("/api/commercial")
@@ -1232,7 +1376,7 @@ def premium_ai_ranking(
     limit: int = Query(default=12, ge=1, le=100),
     _admin: None = Depends(require_admin),
 ):
-    """Safe read-only ranking using confirmed local click events, never fake conversions."""
+    """Read-only ranking; public clicks remain consultative, never INT proof."""
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT key,value FROM premium_settings WHERE key IN ('campaign_priority','ai_review_mode')")
@@ -1246,26 +1390,32 @@ def premium_ai_ranking(
                 LEFT JOIN clicks c ON c.offer_id=o.id
                 WHERE o.active=TRUE AND p.active=TRUE
                 GROUP BY o.id,o.title,p.name
+                HAVING COUNT(c.id) > 0
+                   AND COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') > 0
                 ORDER BY clicks_7d DESC, tracked_clicks DESC, o.id ASC
                 LIMIT %s
             """, (limit,))
             offers = cur.fetchall()
     priority = settings.get("campaign_priority", "balanced")
-    # Preference only breaks ties; never suppresses an authorized offer.
     def rank(item):
         preferred = priority != "balanced" and priority in item["partner"].lower()
         return (-int(item["clicks_7d"]), -int(item["tracked_clicks"]), -int(preferred), int(item["offer_id"]))
     offers.sort(key=rank)
+    # Only an independently authenticated server-side adapter may unlock INT.
+    from int_qualification import filter_int_qualified_offers, INT_GATE_STATUS
+    qualified_offers = filter_int_qualified_offers(offers)
     return {
         "service": SERVICE, "version": VERSION,
         "mode": "read_only", "priority": priority,
         "ai_review_mode": settings.get("ai_review_mode", "manual"),
-        "ranking_basis": "real tracked outbound clicks; no predicted or invented sales",
-        "publication_status": "NOT_CONNECTED",
-        "offers": offers,
-        "note": "Advisory ranking only; no posting, offer changes, or automated purchases.",
+        "ranking_basis": "INT.1/INT.2 unavailable: public click counts are not authenticated intent",
+        "publication_status": INT_GATE_STATUS,
+        "offers": qualified_offers,
+        "consultative_offers": offers,
+        "consultative_ranking_basis": "Public outbound clicks in the last 7 days; NOT INT-qualified, sales, or commissions",
+        "excluded_unverified_offers": len(offers),
+        "note": "INT-qualified ranking disabled until independently authenticated server events are available; no sales or commissions inferred.",
     }
-
 
 @app.get("/campanha/werozinha/amazon/{offer_id}")
 def werozinha_one_click_amazon(
@@ -1273,7 +1423,9 @@ def werozinha_one_click_amazon(
     channel: str = Query(default="social", max_length=40),
     campaign: str = Query(default="werozinha-amazon", max_length=80),
 ):
-    """Single-tap Amazon redirect for approved Werozinha campaign offers."""
+    """Legacy GET now validates and redirects to the landing; it never counts a click."""
+    channel = classify_channel(channel)
+    campaign = safe_campaign(campaign)
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -1289,15 +1441,8 @@ def werozinha_one_click_amazon(
             from p0_amazon_affiliate_gate import amazon_affiliate_tag
             if not amazon_affiliate_tag(row["authorized_url"]):
                 raise HTTPException(status_code=409, detail="Link Amazon sem identificador de afiliado verificavel")
-            cur.execute(
-                """INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at)
-                   VALUES(%s,%s,%s,%s,NOW())""",
-                (offer_id, channel, campaign, SERVICE),
-            )
-            target = row["authorized_url"]
-        conn.commit()
-    return RedirectResponse(target, status_code=302)
-
+    landing = f"/go/{offer_id}?{urlencode({'channel': channel, 'campaign': campaign})}"
+    return RedirectResponse(landing, status_code=302)
 
 @app.get("/vitrine", response_class=HTMLResponse)
 @app.get("/campanha/werozinha", response_class=HTMLResponse)
