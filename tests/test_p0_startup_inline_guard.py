@@ -75,6 +75,17 @@ class StartupBootstrapGateTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=True):
             self.assertFalse(self.load_gate()())
 
+    def test_fingerprint_is_full_sha256_and_matches(self):
+        env = staging_identity_env()
+        fingerprint = env["WERO_STAGING_DATABASE_FINGERPRINT"]
+        self.assertEqual(len(fingerprint), 64)
+        self.assertTrue(startup_database_identity_matches(env))
+
+    def test_rejects_truncated_fingerprint(self):
+        env = staging_identity_env()
+        env["WERO_STAGING_DATABASE_FINGERPRINT"] = env["WERO_STAGING_DATABASE_FINGERPRINT"][:16]
+        self.assertFalse(startup_database_identity_matches(env))
+
     def test_bootstrap_gate_calls_database_identity_guard(self):
         source = Path("main.py").read_text(encoding="utf-8")
         tree = ast.parse(source)

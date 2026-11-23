@@ -17,7 +17,7 @@ class P0DoubleCheck(unittest.TestCase):
         output = str(identity.diagnose(env))
         for forbidden in ("private", "supersecret", "internal.example", "prod"):
             self.assertNotIn(forbidden, output)
-        self.assertEqual(len(identity.diagnose(env)["fingerprint"]), 16)
+        self.assertEqual(len(identity.diagnose(env)["fingerprint"]), 64)
 
     def test_missing_key_does_not_disclose_identity(self):
         self.assertIsNone(identity.diagnose({"DATABASE_URL":"postgresql://u:p@host/db"})["fingerprint"])
