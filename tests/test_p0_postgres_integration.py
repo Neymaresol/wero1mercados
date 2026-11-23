@@ -287,6 +287,8 @@ class StartupBootstrapGateTests(unittest.TestCase):
             "init_db": init_db,
             "seed_amazon_campaigns": seed_amazon,
             "seed_additional_amazon_campaigns": seed_additional,
+            # This isolated predicate test simulates a matching staging fingerprint.
+            "startup_database_identity_matches": lambda: True,
         }
         exec(compile(module, str(source_path), "exec"), namespace)
 
