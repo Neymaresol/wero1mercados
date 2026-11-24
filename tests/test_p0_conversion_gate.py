@@ -4,6 +4,7 @@ These tests do not call HTTP endpoints, touch a database, create clicks,
 or generate sales. They only verify that unverified input is rejected.
 """
 import ast
+import hashlib
 import unittest
 from pathlib import Path
 
@@ -43,6 +44,27 @@ class ConversionGateTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "partner identity mismatch"):
             verified_rows(partner="shopee", raw=b"", provenance=provenance, columns={})
+
+    def test_verified_boolean_and_matching_hash_do_not_unlock_adapter(self):
+        raw = b"id,state,sale,fee\norder-1,confirmed,120.00,12.00\n"
+        provenance = Provenance(
+            partner="amazon",
+            account_id="test-account",
+            report_id="test-report",
+            sha256=hashlib.sha256(raw).hexdigest(),
+            verified=True,
+        )
+        columns = {
+            "external_id": "id",
+            "status": "state",
+            "sale_amount_brl": "sale",
+            "commission_brl": "fee",
+        }
+        with self.assertRaisesRegex(
+            PermissionError,
+            "authenticated partner adapter not integrated",
+        ):
+            verified_rows(partner="amazon", raw=raw, provenance=provenance, columns=columns)
 
     def test_provider_conversion_endpoint_calls_fail_closed_gate(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
