@@ -1471,7 +1471,7 @@ def werozinha_amazon_campaign():
             require_affiliate_attribution(item["authorized_url"], item["domain"])
         except (HTTPException, ValueError):
             continue
-        target = "/campanha/werozinha/amazon/" + str(int(item["id"])) + "?channel=social&campaign=werozinha-amazon"
+        target = "/go/" + str(int(item["id"])) + "?channel=social&campaign=werozinha-amazon"
         cards.append('<a class="tile" href="' + html.escape(target, quote=True) +
                      '" aria-label="Ver ' + html.escape(label, quote=True) +
                      ' na Amazon"><span class="emoji">' + emoji + '</span><strong>' +
