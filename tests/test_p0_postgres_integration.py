@@ -92,6 +92,19 @@ class FunnelPostgresIntegration(unittest.TestCase):
         self.assertEqual(mismatch.status_code,403)
         self.assertEqual(self.counts(),before)
 
+    def test_legacy_amazon_get_redirects_without_recording_click(self):
+        before=self.counts()
+        response=self.client.get(
+            f"/campanha/werozinha/amazon/{self.offer_id}?channel=social&campaign=legacy",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code,303)
+        self.assertEqual(
+            response.headers["location"],
+            f"/go/{self.offer_id}?channel=social&campaign=legacy",
+        )
+        self.assertEqual(self.counts(),before)
+
     def test_invalid_offer_no_click(self):
         before=self.counts()
         response=self.client.post("/out/999999999",data={"outbound_token":"invalid"},follow_redirects=False)
