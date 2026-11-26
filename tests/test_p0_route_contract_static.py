@@ -56,6 +56,16 @@ class P0RouteContractTests(unittest.TestCase):
         self.assertLess(gate, write)
         self.assertIn("raise HTTPException(status_code=403", code)
 
+    def test_ai_ranking_excludes_zero_and_stale_clicks_before_int_gate(self):
+        code = body("premium_ai_ranking")
+        self.assertIn("HAVING COUNT(c.id) > 0", code)
+        self.assertIn(
+            "COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') > 0",
+            code,
+        )
+        self.assertIn("filter_int_qualified_offers(offers)", code)
+        self.assertIn("INT_GATE_STATUS", code)
+
     def test_health_performs_database_query(self):
         self.assertIn(("get", "/health"), routes("health"))
         code = body("health")
