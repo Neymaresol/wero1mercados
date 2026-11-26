@@ -101,7 +101,7 @@ class FunnelPostgresIntegration(unittest.TestCase):
         self.assertEqual(response.status_code,303)
         self.assertEqual(
             response.headers["location"],
-            f"/go/{self.offer_id}?channel=social&campaign=legacy",
+            f"/go/{self.offer_id}?channel=creator&campaign=legacy",
         )
         self.assertEqual(self.counts(),before)
 
