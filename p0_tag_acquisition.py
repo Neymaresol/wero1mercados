@@ -8,6 +8,9 @@ SOCIAL_CHANNELS = frozenset({"instagram", "facebook", "tiktok", "creator"})
 def classify_channel(channel: str) -> str:
     """Treat incoming channel as an unverified campaign label, not proven referrer."""
     value = (channel or "direct").strip().lower()
+    # Preserve legacy social campaign links while mapping them to TAG_02.
+    if value == "social":
+        value = "creator"
     return value if value in ALLOWED_CHANNELS else "direct"
 
 def tag_for_channel(channel: str) -> str:
