@@ -2,6 +2,7 @@
 import os
 import re
 import unittest
+from unittest.mock import patch
 
 class FunnelPostgresIntegration(unittest.TestCase):
     @classmethod
