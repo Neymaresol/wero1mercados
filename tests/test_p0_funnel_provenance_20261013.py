@@ -30,8 +30,13 @@ class P0DoubleCheck(unittest.TestCase):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         go = source.split('@app.get("/go/{offer_id}"')[1].split('@app.post("/out/{offer_id}"')[0]
         out = source.split('@app.post("/out/{offer_id}"')[1].split("class ProviderConversionIn")[0]
-        self.assertIn("offer_landing_visits", go)
+        self.assertNotIn("INSERT INTO offer_landing_visits", go)
         self.assertNotIn("INSERT INTO clicks", go)
+        self.assertIn("issue_outbound_action_token", go)
+        self.assertIn('name="outbound_token"', go)
+        self.assertIn("verify_outbound_action_token", out)
+        self.assertIn("INSERT INTO outbound_action_tokens", out)
+        self.assertIn("ON CONFLICT (token_hash) DO NOTHING", out)
         self.assertIn("INSERT INTO clicks", out)
         self.assertIn("RedirectResponse(target, status_code=303)", out)
         self.assertIn("validate_authorized_url", out)
