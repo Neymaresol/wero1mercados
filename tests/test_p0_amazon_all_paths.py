@@ -26,6 +26,13 @@ class AmazonAllPathsTests(unittest.TestCase):
                 self.assertTrue(calls, f"{name} missing attribution gate")
                 self.assertIn("validate_authorized_url", ast.get_source_segment(SOURCE, node))
 
+    def test_legacy_amazon_get_never_records_click(self):
+        node = function("werozinha_one_click_amazon")
+        source = ast.get_source_segment(SOURCE, node)
+        self.assertNotIn("INSERT INTO clicks", source)
+        self.assertIn('target = "/go/"', source)
+        self.assertIn("RedirectResponse(target, status_code=303)", source)
+
     def test_gate_only_targets_amazon(self):
         node = function("require_affiliate_attribution")
         source = ast.get_source_segment(SOURCE, node)
