@@ -93,9 +93,29 @@ class FunnelPostgresIntegration(unittest.TestCase):
 
     def test_invalid_offer_no_click(self):
         before=self.counts()
-        response=self.client.post("/out/999999999",follow_redirects=False)
+        response=self.client.post("/out/999999999",data={"outbound_token":"invalid"},follow_redirects=False)
         self.assertEqual(response.status_code,404)
         self.assertEqual(self.counts(),before)
+
+    def test_expired_token_is_rejected(self):
+        from fastapi import HTTPException
+        with patch("main.time.time", return_value=1000):
+            token=self.main.issue_outbound_action_token(self.offer_id,"test","p0",ttl_seconds=300)
+        with patch("main.time.time", return_value=1301):
+            with self.assertRaises(HTTPException) as caught:
+                self.main.verify_outbound_action_token(token,self.offer_id,"test","p0")
+        self.assertEqual(caught.exception.status_code,403)
+
+    def test_landing_fails_closed_without_signing_secret(self):
+        previous=self.main.WERO_OUTBOUND_SIGNING_SECRET
+        before=self.counts()
+        try:
+            self.main.WERO_OUTBOUND_SIGNING_SECRET=""
+            response=self.client.get(f"/go/{self.offer_id}?channel=test&campaign=p0")
+            self.assertEqual(response.status_code,503)
+            self.assertEqual(self.counts(),before)
+        finally:
+            self.main.WERO_OUTBOUND_SIGNING_SECRET=previous
 
     def test_legacy_conversion_fail_closed(self):
         # Even with an admin token, this endpoint must not manufacture partner sales.
