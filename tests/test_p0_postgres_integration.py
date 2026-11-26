@@ -1,5 +1,6 @@
 """Actual FastAPI + isolated PostgreSQL route tests; never target production."""
 import os
+import re
 import unittest
 
 class FunnelPostgresIntegration(unittest.TestCase):
@@ -15,6 +16,7 @@ class FunnelPostgresIntegration(unittest.TestCase):
         import main
         main.DATABASE_URL = cls.url
         cls.main = main
+        cls.main.WERO_OUTBOUND_SIGNING_SECRET = "ci-only-outbound-signing-secret-at-least-32-bytes"
         cls.client = cls.TestClient(main.app)
         # Permit schema bootstrap only inside this isolated localhost CI database.
         previous_bootstrap = os.environ.get("WERO_ENABLE_STARTUP_SCHEMA_BOOTSTRAP")
@@ -45,17 +47,49 @@ class FunnelPostgresIntegration(unittest.TestCase):
                 visits=cur.fetchone()[0]
                 cur.execute("SELECT COUNT(*) FROM clicks WHERE offer_id=%s",(self.offer_id,))
                 clicks=cur.fetchone()[0]
-        return visits,clicks
+                cur.execute("SELECT COUNT(*) FROM outbound_action_tokens WHERE offer_id=%s",(self.offer_id,))
+                tokens=cur.fetchone()[0]
+        return visits,clicks,tokens
 
-    def test_landing_then_outbound(self):
+    def test_landing_then_outbound_is_one_time_and_prefetch_safe(self):
         before=self.counts()
         landing=self.client.get(f"/go/{self.offer_id}?channel=test&campaign=p0")
         self.assertEqual(landing.status_code,200)
-        self.assertEqual(self.counts(),(before[0]+1,before[1]))
-        out=self.client.post(f"/out/{self.offer_id}?channel=test&campaign=p0",follow_redirects=False)
+        # GET can be prefetched; it must not create a visit, token row, or click.
+        self.assertEqual(self.counts(),before)
+        match=re.search(r'name="outbound_token" value="([^"]+)"',landing.text)
+        self.assertIsNotNone(match)
+        token=match.group(1)
+        out=self.client.post(
+            f"/out/{self.offer_id}?channel=test&campaign=p0",
+            data={"outbound_token":token},
+            follow_redirects=False,
+        )
         self.assertEqual(out.status_code,303)
         self.assertEqual(out.headers["location"],"https://www.amazon.com.br/test?tag=isolated-ci-20")
-        self.assertEqual(self.counts(),(before[0]+1,before[1]+1))
+        after=self.counts()
+        self.assertEqual(after,(before[0],before[1]+1,before[2]+1))
+        replay=self.client.post(
+            f"/out/{self.offer_id}?channel=test&campaign=p0",
+            data={"outbound_token":token},
+            follow_redirects=False,
+        )
+        self.assertEqual(replay.status_code,409)
+        self.assertEqual(self.counts(),after)
+
+    def test_missing_or_campaign_mismatched_token_is_rejected(self):
+        before=self.counts()
+        missing=self.client.post(f"/out/{self.offer_id}?channel=test&campaign=p0",data={},follow_redirects=False)
+        self.assertEqual(missing.status_code,403)
+        landing=self.client.get(f"/go/{self.offer_id}?channel=test&campaign=p0")
+        token=re.search(r'name="outbound_token" value="([^"]+)"',landing.text).group(1)
+        mismatch=self.client.post(
+            f"/out/{self.offer_id}?channel=test&campaign=other",
+            data={"outbound_token":token},
+            follow_redirects=False,
+        )
+        self.assertEqual(mismatch.status_code,403)
+        self.assertEqual(self.counts(),before)
 
     def test_invalid_offer_no_click(self):
         before=self.counts()
