@@ -66,11 +66,22 @@ class P0RouteContractTests(unittest.TestCase):
         self.assertIn("filter_int_qualified_offers(offers)", code)
         self.assertIn("INT_GATE_STATUS", code)
 
-    def test_health_performs_database_query(self):
+    def test_startup_schema_bootstrap_requires_explicit_opt_in(self):
+        code = body("startup")
+        gate = code.index('os.getenv("WERO_ENABLE_STARTUP_SCHEMA_BOOTSTRAP", "").strip().lower() != "true"')
+        early_return = code.index("return", gate)
+        schema_write = code.index("init_db()", gate)
+        self.assertLess(early_return, schema_write)
+
+    def test_health_separates_connectivity_from_persistence(self):
         self.assertIn(("get", "/health"), routes("health"))
         code = body("health")
         self.assertIn('cur.execute("SELECT 1")', code)
         self.assertIn('"database_ok": database_ok', code)
+        self.assertIn('"storage_persistent": None', code)
+        self.assertIn('"persistence_verified": False', code)
+        self.assertIn('"persistence_status": "not_verified"', code)
+        self.assertNotIn('"storage_persistent": database_ok', code)
 
 
 if __name__ == "__main__":
