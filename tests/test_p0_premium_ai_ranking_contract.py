@@ -27,4 +27,4 @@ def test_ranking_remains_read_only_and_advisory():
     fragment = ranking_source()
     assert "INSERT INTO" not in fragment
     assert "UPDATE offers" not in fragment
-    assert "mode": "read_only" in SOURCE or '"mode": "read_only"' in SOURCE
+    assert '"mode": "read_only"' in SOURCE
