@@ -36,7 +36,9 @@ class P0RouteContractTests(unittest.TestCase):
         code = body("go_offer_landing")
         self.assertIn("validate_authorized_url(", code)
         self.assertIn("require_affiliate_attribution(", code)
-        self.assertIn("INSERT INTO offer_landing_visits", code)
+        self.assertIn("issue_outbound_action_token(", code)
+        self.assertNotIn("INSERT INTO offer_landing_visits", code)
+        self.assertIn('name="outbound_token"', code)
         self.assertIn('action="/out/{offer_id}', code)
 
     def test_out_requires_post_and_records_real_click(self):
@@ -45,8 +47,17 @@ class P0RouteContractTests(unittest.TestCase):
         code = body("confirm_offer_click")
         self.assertIn("validate_authorized_url(", code)
         self.assertIn("require_affiliate_attribution(", code)
+        self.assertIn("verify_outbound_action_token(", code)
+        self.assertIn("INSERT INTO outbound_action_tokens", code)
+        self.assertIn("ON CONFLICT (token_hash) DO NOTHING", code)
         self.assertIn("INSERT INTO clicks", code)
         self.assertIn("RedirectResponse(target, status_code=303)", code)
+
+    def test_outbound_token_table_has_unique_hash_and_offer_binding(self):
+        code = body("init_db")
+        self.assertIn("CREATE TABLE IF NOT EXISTS outbound_action_tokens", code)
+        self.assertIn("token_hash TEXT PRIMARY KEY", code)
+        self.assertIn("offer_id BIGINT NOT NULL REFERENCES offers(id) ON DELETE CASCADE", code)
 
     def test_legacy_conversion_ingest_fails_closed_before_write(self):
         code = body("ingest_provider_conversion")
