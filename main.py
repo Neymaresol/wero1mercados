@@ -384,6 +384,9 @@ def seed_amazon_campaigns():
 
 @app.on_event("startup")
 def startup():
+    # Schema creation and seed writes require an explicit operator-controlled opt-in.
+    if os.getenv("WERO_ENABLE_STARTUP_SCHEMA_BOOTSTRAP", "").strip().lower() != "true":
+        return
     init_db()
     seed_amazon_campaigns()
     seed_additional_amazon_campaigns()
@@ -410,8 +413,11 @@ def health():
         "market": "BR",
         "currency": "BRL",
         "storage": "postgresql",
-        "storage_persistent": database_ok,
         "database_ok": database_ok,
+        "storage_persistent": None,
+        "persistence_verified": False,
+        "persistence_status": "not_verified",
+        "persistence_note": "SELECT 1 checks connectivity only; persistence requires a controlled write/readback and a restorable backup.",
         "time": now_iso(),
     }
 
