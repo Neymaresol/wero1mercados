@@ -1,8 +1,13 @@
 """Offline contract tests for TAG 01 and TAG 02 pilot."""
 import unittest
 from paradigma_tags import search_tag, trend_tag, match_catalog
+from p0_tag_acquisition import classify_channel, tag_for_channel
 
 class TagPilotTests(unittest.TestCase):
+    def test_legacy_social_channel_maps_to_tag_two(self):
+        self.assertEqual(classify_channel("social"), "creator")
+        self.assertEqual(tag_for_channel("social"), "TAG_02")
+
     def test_search_intent(self):
         tag = search_tag("Quero ver o preço da BMW X5")
         self.assertEqual(tag["terms"], ["bmw", "x5"])
