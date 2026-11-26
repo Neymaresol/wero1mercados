@@ -16,7 +16,16 @@ class FunnelPostgresIntegration(unittest.TestCase):
         main.DATABASE_URL = cls.url
         cls.main = main
         cls.client = cls.TestClient(main.app)
-        cls.client.__enter__()
+        # Permit schema bootstrap only inside this isolated localhost CI database.
+        previous_bootstrap = os.environ.get("WERO_ENABLE_STARTUP_SCHEMA_BOOTSTRAP")
+        os.environ["WERO_ENABLE_STARTUP_SCHEMA_BOOTSTRAP"] = "true"
+        try:
+            cls.client.__enter__()
+        finally:
+            if previous_bootstrap is None:
+                os.environ.pop("WERO_ENABLE_STARTUP_SCHEMA_BOOTSTRAP", None)
+            else:
+                os.environ["WERO_ENABLE_STARTUP_SCHEMA_BOOTSTRAP"] = previous_bootstrap
         with cls.psycopg.connect(cls.url) as conn:
             with conn.cursor() as cur:
                 cur.execute("INSERT INTO partners(name,domain,active) VALUES('Test Amazon','amazon.com.br',TRUE) ON CONFLICT(domain) DO UPDATE SET active=TRUE RETURNING id")
