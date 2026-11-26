@@ -1380,7 +1380,9 @@ def werozinha_one_click_amazon(
     channel: str = Query(default="social", max_length=40),
     campaign: str = Query(default="werozinha-amazon", max_length=80),
 ):
-    """Single-tap Amazon redirect for approved Werozinha campaign offers."""
+    """Legacy GET path: validate and forward to the safe landing; never count a click."""
+    channel = classify_channel(channel)
+    campaign = safe_campaign(campaign)
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -1390,20 +1392,12 @@ def werozinha_one_click_amazon(
                 WHERE o.id=%s AND p.domain='amazon.com.br'
             """, (offer_id,))
             row = cur.fetchone()
-            if not row or not row["active"] or not row["partner_active"]:
-                raise HTTPException(status_code=404, detail="Oferta indisponivel")
-            validate_authorized_url(row["authorized_url"], row["domain"])
-            from p0_amazon_affiliate_gate import amazon_affiliate_tag
-            if not amazon_affiliate_tag(row["authorized_url"]):
-                raise HTTPException(status_code=409, detail="Link Amazon sem identificador de afiliado verificavel")
-            cur.execute(
-                """INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at)
-                   VALUES(%s,%s,%s,%s,NOW())""",
-                (offer_id, channel, campaign, SERVICE),
-            )
-            target = row["authorized_url"]
-        conn.commit()
-    return RedirectResponse(target, status_code=302)
+    if not row or not row["active"] or not row["partner_active"]:
+        raise HTTPException(status_code=404, detail="Oferta indisponivel")
+    validate_authorized_url(row["authorized_url"], row["domain"])
+    require_affiliate_attribution(row["authorized_url"], row["domain"])
+    target = "/go/" + str(offer_id) + "?" + urlencode({"channel": channel, "campaign": campaign})
+    return RedirectResponse(target, status_code=303)
 
 
 @app.get("/vitrine", response_class=HTMLResponse)
