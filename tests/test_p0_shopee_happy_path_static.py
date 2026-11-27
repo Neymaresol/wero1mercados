@@ -1,7 +1,7 @@
-"""P0 Shopee: regressão do caminho cliente sem gravar cliques ou vendas.
+"""P0 Shopee: regressão do caminho cliente sem gravar eventos em GET.
 
-Inspeciona a ordem das operações do código em produção: uma oferta/parceiro
-inativo deve ser rejeitado antes de INSERT em ambas as rotas.
+Inspeciona a ordem das operações: GET /go é somente leitura; POST /out exige
+um token válido antes de registrar clique, e oferta/parceiro inativo é rejeitado.
 """
 import ast
 from pathlib import Path
@@ -17,13 +17,15 @@ def _function_source(name: str) -> str:
     return ast.get_source_segment(source, fn)
 
 
-def test_go_rejects_inactive_before_visit_insert():
+def test_go_rejects_inactive_before_token_issue_and_never_writes():
     src = _function_source("go_offer_landing")
     assert 'not row["active"]' in src
     assert 'not row["partner_active"]' in src
     assert src.index("raise HTTPException(status_code=404") < src.index(
-        "INSERT INTO offer_landing_visits"
+        "issue_outbound_action_token("
     )
+    assert "INSERT INTO offer_landing_visits" not in src
+    assert "INSERT INTO clicks" not in src
 
 
 def test_out_rejects_inactive_before_click_insert():

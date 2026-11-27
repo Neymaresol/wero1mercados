@@ -1,0 +1,99 @@
+"""Static P0 route contracts; does not import app or touch production data.
+
+These checks are intentionally *not* HTTP/integration tests. They catch
+accidental route-method and guard removals while the staging DB isolation
+and full Double Check remain pending.
+"""
+import ast
+from pathlib import Path
+import unittest
+
+SOURCE = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+TREE = ast.parse(SOURCE)
+FUNCTIONS = {node.name: node for node in TREE.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+
+def routes(function_name):
+    found = set()
+    for decorator in FUNCTIONS[function_name].decorator_list:
+        if (isinstance(decorator, ast.Call)
+                and isinstance(decorator.func, ast.Attribute)
+                and isinstance(decorator.func.value, ast.Name)
+                and decorator.func.value.id == "app"
+                and decorator.args
+                and isinstance(decorator.args[0], ast.Constant)):
+            found.add((decorator.func.attr, decorator.args[0].value))
+    return found
+
+
+def body(function_name):
+    return ast.get_source_segment(SOURCE, FUNCTIONS[function_name])
+
+
+class P0RouteContractTests(unittest.TestCase):
+    def test_go_is_get_landing_with_authorized_destination(self):
+        self.assertIn(("get", "/go/{offer_id}"), routes("go_offer_landing"))
+        code = body("go_offer_landing")
+        self.assertIn("validate_authorized_url(", code)
+        self.assertIn("require_affiliate_attribution(", code)
+        self.assertIn("issue_outbound_action_token(", code)
+        self.assertNotIn("INSERT INTO offer_landing_visits", code)
+        self.assertIn('name="outbound_token"', code)
+        self.assertIn('action="/out/{offer_id}', code)
+
+    def test_out_requires_post_and_records_real_click(self):
+        self.assertIn(("post", "/out/{offer_id}"), routes("confirm_offer_click"))
+        self.assertNotIn(("get", "/out/{offer_id}"), routes("confirm_offer_click"))
+        code = body("confirm_offer_click")
+        self.assertIn("validate_authorized_url(", code)
+        self.assertIn("require_affiliate_attribution(", code)
+        self.assertIn("verify_outbound_action_token(", code)
+        self.assertIn("INSERT INTO outbound_action_tokens", code)
+        self.assertIn("ON CONFLICT (token_hash) DO NOTHING", code)
+        self.assertIn("INSERT INTO clicks", code)
+        self.assertIn("RedirectResponse(target, status_code=303)", code)
+
+    def test_outbound_token_table_has_unique_hash_and_offer_binding(self):
+        code = body("init_db")
+        self.assertIn("CREATE TABLE IF NOT EXISTS outbound_action_tokens", code)
+        self.assertIn("token_hash TEXT PRIMARY KEY", code)
+        self.assertIn("offer_id BIGINT NOT NULL REFERENCES offers(id) ON DELETE CASCADE", code)
+
+    def test_legacy_conversion_ingest_fails_closed_before_write(self):
+        code = body("ingest_provider_conversion")
+        self.assertIn(("post", "/api/commercial/conversions/provider"), routes("ingest_provider_conversion"))
+        gate = code.index("reject_unverified_manual_conversion()")
+        write = code.index("INSERT INTO conversions")
+        self.assertLess(gate, write)
+        self.assertIn("raise HTTPException(status_code=403", code)
+
+    def test_ai_ranking_excludes_zero_and_stale_clicks_before_int_gate(self):
+        code = body("premium_ai_ranking")
+        self.assertIn("HAVING COUNT(c.id) > 0", code)
+        self.assertIn(
+            "COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') > 0",
+            code,
+        )
+        self.assertIn("filter_int_qualified_offers(offers)", code)
+        self.assertIn("INT_GATE_STATUS", code)
+
+    def test_startup_schema_bootstrap_requires_explicit_opt_in(self):
+        code = body("startup")
+        gate = code.index('os.getenv("WERO_ENABLE_STARTUP_SCHEMA_BOOTSTRAP", "").strip().lower() != "true"')
+        early_return = code.index("return", gate)
+        schema_write = code.index("init_db()", gate)
+        self.assertLess(early_return, schema_write)
+
+    def test_health_separates_connectivity_from_persistence(self):
+        self.assertIn(("get", "/health"), routes("health"))
+        code = body("health")
+        self.assertIn('cur.execute("SELECT 1")', code)
+        self.assertIn('"database_ok": database_ok', code)
+        self.assertIn('"storage_persistent": None', code)
+        self.assertIn('"persistence_verified": False', code)
+        self.assertIn('"persistence_status": "not_verified"', code)
+        self.assertNotIn('"storage_persistent": database_ok', code)
+
+
+if __name__ == "__main__":
+    unittest.main()

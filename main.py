@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse, urlencode, parse_qs
 from pathlib import Path
 import json
+import base64
+import hashlib
+import hmac
 
 import psycopg
 from psycopg.rows import dict_row
@@ -22,6 +25,7 @@ VERSION = "1.14.15-BR-rc1"
 SERVICE = "wero1mercados"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 WERO_ADMIN_TOKEN = os.getenv("WERO_ADMIN_TOKEN", "")
+WERO_OUTBOUND_SIGNING_SECRET = os.getenv("WERO_OUTBOUND_SIGNING_SECRET", "")
 WERO_MODE = os.getenv("WERO_MODE", "homologation").strip().lower()
 if WERO_MODE not in {"production", "homologation"}:
     WERO_MODE = "homologation"
@@ -250,6 +254,20 @@ def init_db():
             )
             """)
             cur.execute("""
+            CREATE TABLE IF NOT EXISTS outbound_action_tokens (
+                token_hash TEXT PRIMARY KEY,
+                offer_id BIGINT NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+                channel TEXT NOT NULL DEFAULT 'direct',
+                campaign TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                consumed_at TIMESTAMPTZ
+            )
+            """)
+            cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_outbound_action_tokens_created_at
+            ON outbound_action_tokens(created_at)
+            """)
+            cur.execute("""
             CREATE TABLE IF NOT EXISTS conversions (
                 id BIGSERIAL PRIMARY KEY,
                 external_id TEXT NOT NULL UNIQUE,
@@ -384,6 +402,9 @@ def seed_amazon_campaigns():
 
 @app.on_event("startup")
 def startup():
+    # Schema creation and seed writes require an explicit operator-controlled opt-in.
+    if os.getenv("WERO_ENABLE_STARTUP_SCHEMA_BOOTSTRAP", "").strip().lower() != "true":
+        return
     init_db()
     seed_amazon_campaigns()
     seed_additional_amazon_campaigns()
@@ -410,8 +431,11 @@ def health():
         "market": "BR",
         "currency": "BRL",
         "storage": "postgresql",
-        "storage_persistent": database_ok,
         "database_ok": database_ok,
+        "storage_persistent": None,
+        "persistence_verified": False,
+        "persistence_status": "not_verified",
+        "persistence_note": "SELECT 1 checks connectivity only; persistence requires a controlled write/readback and a restorable backup.",
         "time": now_iso(),
     }
 
@@ -745,6 +769,69 @@ def require_affiliate_attribution(url: str, domain: str):
             raise HTTPException(status_code=409, detail="Link Amazon sem tag de afiliado valida")
 
 
+def _outbound_signing_key():
+    secret = WERO_OUTBOUND_SIGNING_SECRET
+    if not isinstance(secret, str) or len(secret.encode("utf-8")) < 32:
+        raise HTTPException(status_code=503, detail="outbound_signing_secret_not_configured")
+    return secret.encode("utf-8")
+
+
+def issue_outbound_action_token(offer_id: int, channel: str, campaign: str, ttl_seconds: int = 300):
+    """Issue a short-lived HMAC token without writing on the landing-page GET."""
+    if isinstance(ttl_seconds, bool) or not isinstance(ttl_seconds, int) or not 1 <= ttl_seconds <= 600:
+        raise ValueError("ttl_seconds must be between 1 and 600")
+    key = _outbound_signing_key()
+    issued_at = int(time.time())
+    payload = {
+        "v": 1,
+        "offer_id": int(offer_id),
+        "channel": channel,
+        "campaign": campaign,
+        "iat": issued_at,
+        "exp": issued_at + ttl_seconds,
+        "nonce": secrets.token_urlsafe(24),
+    }
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    encoded = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    signature = hmac.new(key, encoded.encode("ascii"), hashlib.sha256).hexdigest()
+    return encoded + "." + signature
+
+
+def verify_outbound_action_token(token: str, offer_id: int, channel: str, campaign: str):
+    """Validate offer/campaign binding and expiry; return a one-time database key."""
+    key = _outbound_signing_key()
+    try:
+        if not isinstance(token, str) or not token or len(token) > 2048:
+            raise ValueError("invalid token length")
+        encoded, signature = token.split(".", 1)
+        if not encoded or len(signature) != 64:
+            raise ValueError("invalid token shape")
+        expected = hmac.new(key, encoded.encode("ascii"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise ValueError("invalid signature")
+        padded = encoded + ("=" * (-len(encoded) % 4))
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+        if not isinstance(payload, dict) or payload.get("v") != 1:
+            raise ValueError("invalid payload")
+        issued_at = payload.get("iat")
+        expires_at = payload.get("exp")
+        if type(issued_at) is not int or type(expires_at) is not int:
+            raise ValueError("invalid token times")
+        now = int(time.time())
+        if issued_at > now or expires_at < now or expires_at <= issued_at or expires_at - issued_at > 600:
+            raise ValueError("expired or invalid token time")
+        if type(payload.get("offer_id")) is not int or payload.get("offer_id") != offer_id:
+            raise ValueError("offer mismatch")
+        if payload.get("channel") != channel or payload.get("campaign") != campaign:
+            raise ValueError("campaign mismatch")
+        nonce = payload.get("nonce")
+        if not isinstance(nonce, str) or len(nonce) < 24:
+            raise ValueError("invalid nonce")
+    except (ValueError, TypeError, UnicodeError, json.JSONDecodeError):
+        raise HTTPException(status_code=403, detail="outbound_token_invalid")
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 @app.post("/api/commercial/offers")
 def register_commercial_offer(payload: OfferIn, _admin: None = Depends(require_admin)):
     partner_name = payload.partner_name.strip()
@@ -875,6 +962,7 @@ def authorized_storefront_trends():
                 LEFT JOIN clicks c ON c.offer_id=o.id
                 WHERE o.active=TRUE AND p.active=TRUE
                 GROUP BY o.id, o.title, p.name, p.domain, o.authorized_url
+                HAVING COUNT(c.id) > 0
                 ORDER BY recorded_clicks DESC, o.id DESC
                 LIMIT 20
             """)
@@ -915,13 +1003,8 @@ def go_offer_landing(
         raise HTTPException(status_code=404, detail="Oferta indisponivel")
     validate_authorized_url(row["authorized_url"], row["domain"])
     require_affiliate_attribution(row["authorized_url"], row["domain"])
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO offer_landing_visits(offer_id,channel,campaign) VALUES(%s,%s,%s)",
-                (offer_id, channel, campaign),
-            )
-        conn.commit()
+    # GET may be prefetched by browsers and crawlers: do not write visits or clicks here.
+    outbound_token = issue_outbound_action_token(offer_id, channel, campaign)
     title = html.escape(row["title"])
     partner = html.escape(row["partner_name"])
     cta_label = ("Conferir preço e disponibilidade na Amazon →"
@@ -945,6 +1028,7 @@ small{{display:block;color:#536172;line-height:1.6;margin-top:18px}}
 <main><span class="tag">Oferta de parceiro</span><h1>{title}</h1>
 <p>Conheça esta oferta no site do parceiro e confira preço, disponibilidade, entrega e condições atualizadas antes de comprar.</p>
 <form method="post" action="/out/{offer_id}?{safe_query}">
+<input type="hidden" name="outbound_token" value="{html.escape(outbound_token, quote=True)}">
 <button type="submit">{cta_label}</button></form>
 <div class="partner"><strong>Loja parceira:</strong> {partner}</div>
 <small>Publicidade / link de associado: compras qualificadas podem gerar comissão. Você será encaminhado ao site do parceiro somente após tocar no botão. A compra e o pagamento são realizados no ambiente do parceiro.</small>
@@ -952,14 +1036,23 @@ small{{display:block;color:#536172;line-height:1.6;margin-top:18px}}
 
 
 @app.post("/out/{offer_id}")
-def confirm_offer_click(
+async def confirm_offer_click(
     offer_id: int,
+    request: Request,
     channel: str = Query(default="direct", max_length=40),
     campaign: str = Query(default="", max_length=80),
 ):
-    # Untrusted campaign labels: normalize before persisting and forwarding.
+    """Record a click only after a signed, offer-bound, one-time user action."""
     channel = classify_channel(channel)
     campaign = safe_campaign(campaign)
+    try:
+        form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=403, detail="outbound_token_required") from exc
+    token_values = form.get("outbound_token", [])
+    if len(token_values) != 1:
+        raise HTTPException(status_code=403, detail="outbound_token_required")
+
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -973,6 +1066,15 @@ def confirm_offer_click(
                 raise HTTPException(status_code=404, detail="Oferta indisponivel")
             validate_authorized_url(row["authorized_url"], row["domain"])
             require_affiliate_attribution(row["authorized_url"], row["domain"])
+            token_hash = verify_outbound_action_token(token_values[0], offer_id, channel, campaign)
+            cur.execute("""
+                INSERT INTO outbound_action_tokens(token_hash,offer_id,channel,campaign,consumed_at)
+                VALUES(%s,%s,%s,%s,NOW())
+                ON CONFLICT (token_hash) DO NOTHING
+                RETURNING token_hash
+            """, (token_hash, offer_id, channel, campaign))
+            if cur.fetchone() is None:
+                raise HTTPException(status_code=409, detail="outbound_token_replayed")
             cur.execute(
                 """INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at)
                    VALUES(%s,%s,%s,%s,NOW())""",
@@ -1246,6 +1348,8 @@ def premium_ai_ranking(
                 LEFT JOIN clicks c ON c.offer_id=o.id
                 WHERE o.active=TRUE AND p.active=TRUE
                 GROUP BY o.id,o.title,p.name
+                HAVING COUNT(c.id) > 0
+                   AND COUNT(c.id) FILTER (WHERE c.created_at >= NOW() - INTERVAL '7 days') > 0
                 ORDER BY clicks_7d DESC, tracked_clicks DESC, o.id ASC
                 LIMIT %s
             """, (limit,))
@@ -1256,14 +1360,18 @@ def premium_ai_ranking(
         preferred = priority != "balanced" and priority in item["partner"].lower()
         return (-int(item["clicks_7d"]), -int(item["tracked_clicks"]), -int(preferred), int(item["offer_id"]))
     offers.sort(key=rank)
+    # Public clicks cannot establish independently authenticated INT.1/INT.2.
+    from int_qualification import filter_int_qualified_offers, INT_GATE_STATUS
+    qualified_offers = filter_int_qualified_offers(offers)
     return {
         "service": SERVICE, "version": VERSION,
         "mode": "read_only", "priority": priority,
         "ai_review_mode": settings.get("ai_review_mode", "manual"),
-        "ranking_basis": "real tracked outbound clicks; no predicted or invented sales",
-        "publication_status": "NOT_CONNECTED",
-        "offers": offers,
-        "note": "Advisory ranking only; no posting, offer changes, or automated purchases.",
+        "ranking_basis": "INT.1/INT.2 unavailable: public click counts are not authenticated intent",
+        "publication_status": INT_GATE_STATUS,
+        "offers": qualified_offers,
+        "excluded_unverified_offers": len(offers),
+        "note": "INT-qualified ranking disabled until independently authenticated server events are available; no sales or commissions inferred.",
     }
 
 
@@ -1273,7 +1381,9 @@ def werozinha_one_click_amazon(
     channel: str = Query(default="social", max_length=40),
     campaign: str = Query(default="werozinha-amazon", max_length=80),
 ):
-    """Single-tap Amazon redirect for approved Werozinha campaign offers."""
+    """Legacy GET path: validate and forward to the safe landing; never count a click."""
+    channel = classify_channel(channel)
+    campaign = safe_campaign(campaign)
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -1283,20 +1393,12 @@ def werozinha_one_click_amazon(
                 WHERE o.id=%s AND p.domain='amazon.com.br'
             """, (offer_id,))
             row = cur.fetchone()
-            if not row or not row["active"] or not row["partner_active"]:
-                raise HTTPException(status_code=404, detail="Oferta indisponivel")
-            validate_authorized_url(row["authorized_url"], row["domain"])
-            from p0_amazon_affiliate_gate import amazon_affiliate_tag
-            if not amazon_affiliate_tag(row["authorized_url"]):
-                raise HTTPException(status_code=409, detail="Link Amazon sem identificador de afiliado verificavel")
-            cur.execute(
-                """INSERT INTO clicks(offer_id,channel,campaign,robot_id,created_at)
-                   VALUES(%s,%s,%s,%s,NOW())""",
-                (offer_id, channel, campaign, SERVICE),
-            )
-            target = row["authorized_url"]
-        conn.commit()
-    return RedirectResponse(target, status_code=302)
+    if not row or not row["active"] or not row["partner_active"]:
+        raise HTTPException(status_code=404, detail="Oferta indisponivel")
+    validate_authorized_url(row["authorized_url"], row["domain"])
+    require_affiliate_attribution(row["authorized_url"], row["domain"])
+    target = "/go/" + str(offer_id) + "?" + urlencode({"channel": channel, "campaign": campaign})
+    return RedirectResponse(target, status_code=303)
 
 
 @app.get("/vitrine", response_class=HTMLResponse)
