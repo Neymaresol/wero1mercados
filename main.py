@@ -962,6 +962,7 @@ def authorized_storefront_trends():
                 LEFT JOIN clicks c ON c.offer_id=o.id
                 WHERE o.active=TRUE AND p.active=TRUE
                 GROUP BY o.id, o.title, p.name, p.domain, o.authorized_url
+                HAVING COUNT(c.id) > 0
                 ORDER BY recorded_clicks DESC, o.id DESC
                 LIMIT 20
             """)
