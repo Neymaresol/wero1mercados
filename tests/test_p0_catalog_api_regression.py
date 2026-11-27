@@ -37,6 +37,12 @@ class OffersCatalogRegression(unittest.TestCase):
         names = {n.name for n in TREE.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
         self.assertTrue({"confirm_offer_click", "ingest_provider_conversion", "commercial"}.issubset(names))
 
+    def test_tag_trends_excludes_zero_click_offers(self):
+        route = next(n for n in TREE.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == "authorized_storefront_trends")
+        code = ast.unparse(route)
+        self.assertIn("HAVING COUNT(c.id) > 0", code)
+        self.assertIn("COUNT(c.id) AS recorded_clicks", code)
+
 
 if __name__ == "__main__":
     unittest.main()
